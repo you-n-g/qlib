@@ -1,8 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import re
+import abc
 import sys
+import copy
+import time
+import datetime
+import importlib
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,44 +15,108 @@ import requests
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from lxml import etree
 from loguru import logger
 from yahooquery import Ticker
+from dateutil.tz import tzlocal
 
 CUR_DIR = Path(__file__).resolve().parent
 sys.path.append(str(CUR_DIR.parent.parent))
-from dump_bin import DumpData
+from data_collector.utils import get_calendar_list, get_hs_stock_symbols, get_us_stock_symbols
 
-SYMBOLS_URL = "http://app.finance.ifeng.com/hq/list.php?type=stock_a&class={s_type}"
-CSI300_BENCH_URL = "http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.000300&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&klt=101&fqt=0&beg=19900101&end=20220101"
+INDEX_BENCH_URL = "http://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.{index_code}&fields1=f1%2Cf2%2Cf3%2Cf4%2Cf5&fields2=f51%2Cf52%2Cf53%2Cf54%2Cf55%2Cf56%2Cf57%2Cf58&klt=101&fqt=0&beg={begin}&end={end}"
+REGION_CN = "CN"
+REGION_US = "US"
 
 
 class YahooCollector:
-    def __init__(self, save_dir: [str, Path], max_workers=4):
+    START_DATETIME = pd.Timestamp("2000-01-01")
+    HIGH_FREQ_START_DATETIME = pd.Timestamp(datetime.datetime.now() - pd.Timedelta(days=5 * 5))
+    END_DATETIME = pd.Timestamp(datetime.datetime.now() + pd.Timedelta(days=1))
 
+    def __init__(
+        self,
+        save_dir: [str, Path],
+        start=None,
+        end=None,
+        interval="1d",
+        max_workers=4,
+        max_collector_count=5,
+        delay=0,
+        check_data_length: bool = False,
+        limit_nums: int = None,
+    ):
+        """
+
+        Parameters
+        ----------
+        save_dir: str
+            stock save dir
+        max_workers: int
+            workers, default 4
+        max_collector_count: int
+            default 5
+        delay: float
+            time.sleep(delay), default 0
+        interval: str
+            freq, value from [1m, 1d], default 1m
+        start: str
+            start datetime, default None
+        end: str
+            end datetime, default None
+        check_data_length: bool
+            check data length, by default False
+        limit_nums: int
+            using for debug, by default None
+        """
         self.save_dir = Path(save_dir).expanduser().resolve()
         self.save_dir.mkdir(parents=True, exist_ok=True)
-        self._stock_list = None
+        self._delay = delay
+        self.stock_list = sorted(set(self.get_stock_list()))
+        if limit_nums is not None:
+            try:
+                self.stock_list = self.stock_list[: int(limit_nums)]
+            except Exception as e:
+                logger.warning(f"Cannot use limit_nums={limit_nums}, the parameter will be ignored")
         self.max_workers = max_workers
+        self._max_collector_count = max_collector_count
+        self._mini_symbol_map = {}
+        self._interval = interval
+        self._check_small_data = check_data_length
+        self._start_datetime = pd.Timestamp(str(start)) if start else self.START_DATETIME
+        self._end_datetime = pd.Timestamp(str(end)) if end else self.END_DATETIME
+        if self._interval == "1m":
+            self._start_datetime = max(self._start_datetime, self.HIGH_FREQ_START_DATETIME)
+        elif self._interval == "1d":
+            self._start_datetime = max(self._start_datetime, self.START_DATETIME)
+        else:
+            raise ValueError(f"interval error: {self._interval}")
+
+        self._start_datetime = self.convert_datetime(self._start_datetime)
+        self._end_datetime = self.convert_datetime(min(self._end_datetime, self.END_DATETIME))
 
     @property
-    def stock_list(self):
-        if self._stock_list is None:
-            self._stock_list = self.get_stock_list()
-        return self._stock_list
+    @abc.abstractmethod
+    def min_numbers_trading(self):
+        # daily, one year: 252 / 4
+        # us 1min, a week: 6.5 * 60 * 5
+        # cn 1min, a week: 4 * 60 * 5
+        raise NotImplementedError("rewirte min_numbers_trading")
 
-    @staticmethod
-    def get_stock_list() -> list:
-        _res = set()
-        for _k, _v in (("ha", "ss"), ("sa", "sz"), ("gem", "sz")):
-            resp = requests.get(SYMBOLS_URL.format(s_type=_k))
-            _res |= set(
-                map(
-                    lambda x: "{}.{}".format(re.findall(r"\d+", x)[0], _v),
-                    etree.HTML(resp.text).xpath("//div[@class='result']/ul//li/a/text()"),
-                )
-            )
-        return sorted(list(_res))
+    @abc.abstractmethod
+    def get_stock_list(self):
+        raise NotImplementedError("rewirte get_stock_list")
+
+    @property
+    @abc.abstractclassmethod
+    def _timezone(self):
+        raise NotImplementedError("rewrite get_timezone")
+
+    def convert_datetime(self, dt: pd.Timestamp):
+        dt = pd.Timestamp(dt, tz=self._timezone).timestamp()
+        return pd.Timestamp(dt, tz=tzlocal(), unit="s")
+
+    def _sleep(self):
+        time.sleep(self._delay)
 
     def save_stock(self, symbol, df: pd.DataFrame):
         """save stock data to file
@@ -63,65 +131,311 @@ class YahooCollector:
         if df.empty:
             raise ValueError("df is empty")
 
-        symbol_s = symbol.split(".")
-        symbol = f"sh{symbol_s[0]}" if symbol_s[-1] == "ss" else f"sz{symbol_s[0]}"
+        symbol = self.normalize_symbol(symbol)
         stock_path = self.save_dir.joinpath(f"{symbol}.csv")
         df["symbol"] = symbol
-        df.to_csv(stock_path, index=False)
+        if stock_path.exists():
+            with stock_path.open("a") as fp:
+                df.to_csv(fp, index=False, header=None)
+        else:
+            with stock_path.open("w") as fp:
+                df.to_csv(fp, index=False)
+
+    def _save_small_data(self, symbol, df):
+        if len(df) <= self.min_numbers_trading:
+            logger.warning(f"the number of trading days of {symbol} is less than {self.min_numbers_trading}!")
+            _temp = self._mini_symbol_map.setdefault(symbol, [])
+            _temp.append(df.copy())
+            return None
+        else:
+            if symbol in self._mini_symbol_map:
+                self._mini_symbol_map.pop(symbol)
+            return symbol
+
+    def _get_from_remote(self, symbol):
+        def _get_simple(start_, end_):
+            self._sleep()
+            try:
+                _resp = Ticker(symbol, asynchronous=False).history(interval=self._interval, start=start_, end=end_)
+                if isinstance(_resp, pd.DataFrame):
+                    return _resp.reset_index()
+                else:
+                    logger.warning(f"{symbol}-{self._interval}-{start_}-{end_}:{_resp}")
+            except Exception as e:
+                logger.warning(f"{symbol}-{self._interval}-{start_}-{end_}:{e}")
+
+        _result = None
+        if self._interval == "1d":
+            _result = _get_simple(self._start_datetime, self._end_datetime)
+        elif self._interval == "1m":
+            _start_date = self._start_datetime.date() + pd.Timedelta(days=1)
+            _end_date = self._end_datetime.date()
+            if _start_date >= _end_date:
+                _result = _get_simple(self._start_datetime, self._end_datetime)
+            else:
+                _res = []
+
+                def _get_multi(start_, end_):
+                    _resp = _get_simple(start_, end_)
+                    if _resp is not None:
+                        _res.append(_resp)
+
+                for _s, _e in ((self._start_datetime, _start_date), (_end_date, self._end_datetime)):
+                    _get_multi(_s, _e)
+                for _start in pd.date_range(_start_date, _end_date, closed="left"):
+                    _end = _start + pd.Timedelta(days=1)
+                    self._sleep()
+                    _get_multi(_start, _end)
+                if _res:
+                    _result = pd.concat(_res, sort=False).sort_values(["symbol", "date"])
+        else:
+            raise ValueError(f"cannot support {self._interval}")
+        return _result
+
+    def _get_data(self, symbol):
+        _result = None
+        df = self._get_from_remote(symbol)
+        if isinstance(df, pd.DataFrame):
+            if not df.empty:
+                if self._check_small_data:
+                    if self._save_small_data(symbol, df) is not None:
+                        _result = symbol
+                        self.save_stock(symbol, df)
+                else:
+                    _result = symbol
+                    self.save_stock(symbol, df)
+        return _result
+
+    def _collector(self, stock_list):
+
+        error_symbol = []
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            with tqdm(total=len(stock_list)) as p_bar:
+                for _symbol, _result in zip(stock_list, executor.map(self._get_data, stock_list)):
+                    if _result is None:
+                        error_symbol.append(_symbol)
+                    p_bar.update()
+        print(error_symbol)
+        logger.info(f"error symbol nums: {len(error_symbol)}")
+        logger.info(f"current get symbol nums: {len(stock_list)}")
+        error_symbol.extend(self._mini_symbol_map.keys())
+        return sorted(set(error_symbol))
 
     def collector_data(self):
-        """collector data
-
-        """
+        """collector data"""
         logger.info("start collector yahoo data......")
-        error_symbol = []
-        with ThreadPoolExecutor(max_workers=self.max_workers) as worker:
-            futures = {}
-            p_bar = tqdm(total=len(self.stock_list))
-            for symbols in [
-                self.stock_list[i : i + self.max_workers] for i in range(0, len(self.stock_list), self.max_workers)
-            ]:
-                resp = Ticker(symbols, asynchronous=True, max_workers=self.max_workers).history(period="max")
-                if isinstance(resp, dict):
-                    for symbol, df in resp.items():
-                        if isinstance(df, pd.DataFrame):
-                            futures[
-                                worker.submit(
-                                    self.save_stock, symbol, df.reset_index().rename(columns={"index": "date"})
-                                )
-                            ] = symbol
-                        else:
-                            error_symbol.append(symbol)
-                else:
-                    for symbol, df in resp.reset_index().groupby("symbol"):
-                        futures[worker.submit(self.save_stock, symbol, df)] = symbol
-                p_bar.update(self.max_workers)
-            p_bar.close()
+        stock_list = self.stock_list
+        for i in range(self._max_collector_count):
+            if not stock_list:
+                break
+            logger.info(f"getting data: {i+1}")
+            stock_list = self._collector(stock_list)
+            logger.info(f"{i+1} finish.")
+        for _symbol, _df_list in self._mini_symbol_map.items():
+            self.save_stock(_symbol, pd.concat(_df_list, sort=False).drop_duplicates(["date"]).sort_values(["date"]))
+        if self._mini_symbol_map:
+            logger.warning(f"less than {self.min_numbers_trading} stock list: {list(self._mini_symbol_map.keys())}")
+        logger.info(f"total {len(self.stock_list)}, error: {len(set(stock_list))}")
 
-            with tqdm(total=len(futures.values())) as p_bar:
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(e)
-                        error_symbol.append(futures[future])
+        self.download_index_data()
+
+    @abc.abstractmethod
+    def download_index_data(self):
+        """download index data"""
+        raise NotImplementedError("rewrite download_index_data")
+
+    @abc.abstractmethod
+    def normalize_symbol(self, symbol: str):
+        """normalize symbol"""
+        raise NotImplementedError("rewrite normalize_symbol")
+
+
+class YahooCollectorCN(YahooCollector):
+    @property
+    def min_numbers_trading(self):
+        if self._interval == "1m":
+            return 60 * 4 * 5
+        elif self._interval == "1d":
+            return 252 / 4
+
+    def get_stock_list(self):
+        logger.info("get HS stock symbos......")
+        symbols = get_hs_stock_symbols()
+        logger.info(f"get {len(symbols)} symbols.")
+        return symbols
+
+    def download_index_data(self):
+        # TODO: from MSN
+        # FIXME: 1m
+        if self._interval == "1d":
+            _format = "%Y%m%d"
+            _begin = self._start_datetime.strftime(_format)
+            _end = (self._end_datetime + pd.Timedelta(days=-1)).strftime(_format)
+            for _index_name, _index_code in {"csi300": "000300", "csi100": "000903"}.items():
+                logger.info(f"get bench data: {_index_name}({_index_code})......")
+                try:
+                    df = pd.DataFrame(
+                        map(
+                            lambda x: x.split(","),
+                            requests.get(INDEX_BENCH_URL.format(index_code=_index_code, begin=_begin, end=_end)).json()[
+                                "data"
+                            ]["klines"],
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(f"get {_index_name} error: {e}")
+                    continue
+                df.columns = ["date", "open", "close", "high", "low", "volume", "money", "change"]
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.astype(float, errors="ignore")
+                df["adjclose"] = df["close"]
+                df.to_csv(self.save_dir.joinpath(f"sh{_index_code}.csv"), index=False)
+        else:
+            logger.warning(f"{self.__class__.__name__} {self._interval} does not support: downlaod_index_data")
+
+    def normalize_symbol(self, symbol):
+        symbol_s = symbol.split(".")
+        symbol = f"sh{symbol_s[0]}" if symbol_s[-1] == "ss" else f"sz{symbol_s[0]}"
+        return symbol
+
+    @property
+    def _timezone(self):
+        return "Asia/Shanghai"
+
+
+class YahooCollectorUS(YahooCollector):
+    @property
+    def min_numbers_trading(self):
+        if self._interval == "1m":
+            return 60 * 6.5 * 5
+        elif self._interval == "1d":
+            return 252 / 4
+
+    def get_stock_list(self):
+        logger.info("get US stock symbols......")
+        symbols = get_us_stock_symbols() + [
+            "^GSPC",
+            "^NDX",
+            "^DJI",
+        ]
+        logger.info(f"get {len(symbols)} symbols.")
+        return symbols
+
+    def download_index_data(self):
+        pass
+
+    def normalize_symbol(self, symbol):
+        return symbol.upper()
+
+    @property
+    def _timezone(self):
+        return "America/New_York"
+
+
+class YahooNormalize:
+    COLUMNS = ["open", "close", "high", "low", "volume"]
+
+    def __init__(self, source_dir: [str, Path], target_dir: [str, Path], max_workers: int = 16):
+        """
+
+        Parameters
+        ----------
+        source_dir: str or Path
+            The directory where the raw data collected from the Internet is saved
+        target_dir: str or Path
+            Directory for normalize data
+        max_workers: int
+            Concurrent number, default is 16
+        """
+        if not (source_dir and target_dir):
+            raise ValueError("source_dir and target_dir cannot be None")
+        self._source_dir = Path(source_dir).expanduser()
+        self._target_dir = Path(target_dir).expanduser()
+        self._max_workers = max_workers
+        self._calendar_list = self._get_calendar_list()
+
+    def normalize_data(self):
+        logger.info("normalize data......")
+
+        def _normalize(source_path: Path):
+            columns = copy.deepcopy(self.COLUMNS)
+            df = pd.read_csv(source_path)
+            df.set_index("date", inplace=True)
+            df.index = pd.to_datetime(df.index)
+            df = df[~df.index.duplicated(keep="first")]
+            if self._calendar_list is not None:
+                df = df.reindex(pd.DataFrame(index=self._calendar_list).loc[df.index.min() : df.index.max()].index)
+            df.sort_index(inplace=True)
+            df.loc[(df["volume"] <= 0) | np.isnan(df["volume"]), set(df.columns) - {"symbol"}] = np.nan
+            df["factor"] = df["adjclose"] / df["close"]
+            for _col in columns:
+                if _col == "volume":
+                    df[_col] = df[_col] / df["factor"]
+                else:
+                    df[_col] = df[_col] * df["factor"]
+            _tmp_series = df["close"].fillna(method="ffill")
+            df["change"] = _tmp_series / _tmp_series.shift(1) - 1
+            columns += ["change", "factor"]
+            df.loc[(df["volume"] <= 0) | np.isnan(df["volume"]), columns] = np.nan
+            df.index.names = ["date"]
+            df.loc[:, columns].to_csv(self._target_dir.joinpath(source_path.name))
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as worker:
+            file_list = list(self._source_dir.glob("*.csv"))
+            with tqdm(total=len(file_list)) as p_bar:
+                for _ in worker.map(_normalize, file_list):
                     p_bar.update()
 
-        logger.info(error_symbol)
-        logger.info(len(error_symbol))
-        logger.info(len(self.stock_list))
+    def manual_adj_data(self):
+        """adjust data"""
+        logger.info("manual adjust data......")
 
+        def _adj(file_path: Path):
+            df = pd.read_csv(file_path)
+            df = df.loc[:, ["open", "close", "high", "low", "volume", "change", "factor", "date"]]
+            df.sort_values("date", inplace=True)
+            df = df.set_index("date")
+            df = df.loc[df.first_valid_index() :]
+            _close = df["close"].iloc[0]
+            for _col in df.columns:
+                if _col == "volume":
+                    df[_col] = df[_col] * _close
+                elif _col != "change":
+                    df[_col] = df[_col] / _close
+                else:
+                    pass
+            df.reset_index().to_csv(self._target_dir.joinpath(file_path.name), index=False)
+
+        with ThreadPoolExecutor(max_workers=self._max_workers) as worker:
+            file_list = list(self._target_dir.glob("*.csv"))
+            with tqdm(total=len(file_list)) as p_bar:
+                for _ in worker.map(_adj, file_list):
+                    p_bar.update()
+
+    def normalize(self):
+        self.normalize_data()
+        self.manual_adj_data()
+
+    @abc.abstractmethod
+    def _get_calendar_list(self):
+        """Get benchmark calendar"""
+        raise NotImplementedError("")
+
+
+class YahooNormalizeUS(YahooNormalize):
+    def _get_calendar_list(self):
         # TODO: from MSN
-        df = pd.DataFrame(map(lambda x: x.split(","), requests.get(CSI300_BENCH_URL).json()["data"]["klines"]))
-        df.columns = ["date", "open", "close", "high", "low", "volume", "money", "change"]
-        df["date"] = pd.to_datetime(df["date"])
-        df = df.astype(float, errors="ignore")
-        df["adjclose"] = df["close"]
-        df.to_csv(self.save_dir.joinpath("sh000300.csv"), index=False)
+        return get_calendar_list("US_ALL")
+
+
+class YahooNormalizeCN(YahooNormalize):
+    def _get_calendar_list(self):
+        # TODO: from MSN
+        return get_calendar_list("ALL")
 
 
 class Run:
-    def __init__(self, source_dir=None, normalize_dir=None, qlib_dir=None, max_workers=4):
+    def __init__(self, source_dir=None, normalize_dir=None, max_workers=4, region=REGION_CN):
         """
 
         Parameters
@@ -130,10 +444,10 @@ class Run:
             The directory where the raw data collected from the Internet is saved, default "Path(__file__).parent/source"
         normalize_dir: str
             Directory for normalize data, default "Path(__file__).parent/normalize"
-        qlib_dir: str
-            qlib data dir; usage of provider_uri, default "Path(__file__).parent/qlib_data"
         max_workers: int
             Concurrent number, default is 4
+        region: str
+            region, value from ["CN", "US"], default "CN"
         """
         if source_dir is None:
             source_dir = CUR_DIR.joinpath("source")
@@ -145,109 +459,111 @@ class Run:
         self.normalize_dir = Path(normalize_dir).expanduser().resolve()
         self.normalize_dir.mkdir(parents=True, exist_ok=True)
 
-        if qlib_dir is None:
-            qlib_dir = CUR_DIR.joinpath("qlib_data")
-        self.qlib_dir = Path(qlib_dir).expanduser().resolve()
-        self.qlib_dir.mkdir(parents=True, exist_ok=True)
-
+        self._cur_module = importlib.import_module("collector")
         self.max_workers = max_workers
+        self.region = region
+
+    def download_data(
+        self,
+        max_collector_count=5,
+        delay=0,
+        start=None,
+        end=None,
+        interval="1d",
+        check_data_length=False,
+        limit_nums=None,
+    ):
+        """download data from Internet
+
+        Parameters
+        ----------
+        max_collector_count: int
+            default 5
+        delay: float
+            time.sleep(delay), default 0
+        interval: str
+            freq, value from [1m, 1d], default 1m
+        start: str
+            start datetime, default "2000-01-01"
+        end: str
+            end datetime, default ``pd.Timestamp(datetime.datetime.now() + pd.Timedelta(days=1))``
+        check_data_length: bool
+            check data length, by default False
+        limit_nums: int
+            using for debug, by default None
+        Examples
+        ---------
+            # get daily data
+            $ python collector.py download_data --source_dir ~/.qlib/stock_data/source --region CN --start 2020-11-01 --end 2020-11-10 --delay 0.1 --interval 1d
+            # get 1m data
+            $ python collector.py download_data --source_dir ~/.qlib/stock_data/source --region CN --start 2020-11-01 --end 2020-11-10 --delay 0.1 --interval 1m
+        """
+
+        _class = getattr(self._cur_module, f"YahooCollector{self.region.upper()}")
+        _class(
+            self.source_dir,
+            max_workers=self.max_workers,
+            max_collector_count=max_collector_count,
+            delay=delay,
+            start=start,
+            end=end,
+            interval=interval,
+            check_data_length=check_data_length,
+            limit_nums=limit_nums,
+        ).collector_data()
 
     def normalize_data(self):
         """normalize data
 
         Examples
         ---------
-            $ python collector.py normalize_data --source_dir ~/.qlib/stock_data/source --normalize_dir ~/.qlib/stock_data/normalize
-
+            $ python collector.py normalize_data --source_dir ~/.qlib/stock_data/source --normalize_dir ~/.qlib/stock_data/normalize --region CN
         """
+        _class = getattr(self._cur_module, f"YahooNormalize{self.region.upper()}")
+        _class(self.source_dir, self.normalize_dir, self.max_workers).normalize()
 
-        def _normalize(file_path: Path):
-            columns = ["open", "close", "high", "low", "volume"]
-            df = pd.read_csv(file_path)
-            df.sort_values("date", inplace=True)
-            df.loc[df["volume"] <= 0, set(df.columns) - {"symbol", "date"}] = np.nan
-            df["factor"] = df["adjclose"] / df["close"]
-            for _col in columns:
-                if _col == "volume":
-                    df[_col] = df[_col] / df["factor"]
-                else:
-                    df[_col] = df[_col] * df["factor"]
-            _tmp_series = df["close"].fillna(method="ffill")
-            df["change"] = _tmp_series / _tmp_series.shift(1) - 1
-            columns += ["change", "factor"]
-            df.loc[(df["volume"] <= 0) | np.isnan(df["volume"]), columns] = np.nan
-            df.loc[:, columns + ["date"]].to_csv(self.normalize_dir.joinpath(file_path.name), index=False)
+    def collector_data(
+        self,
+        max_collector_count=5,
+        delay=0,
+        start=None,
+        end=None,
+        interval="1d",
+        check_data_length=False,
+        limit_nums=None,
+    ):
+        """download -> normalize
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as worker:
-            file_list = list(self.source_dir.glob("*.csv"))
-            with tqdm(total=len(file_list)) as p_bar:
-                for _ in worker.map(_normalize, file_list):
-                    p_bar.update()
-
-    def manual_adj_data(self):
-        """manual adjust data
-
-        Examples
-        --------
-            $ python collector.py manual_adj_data --normalize_dir ~/.qlib/stock_data/normalize
-
-        """
-        def _adj(file_path: Path):
-            df = pd.read_csv(file_path)
-            df = df.loc[:, ["open", "close", "high", "low", "volume", "change", "factor"]]
-            df.sort_values("date", inplace=True)
-            df = df.set_index("date")
-            df = df.loc[df.first_valid_index():]
-            _close = df["close"].iloc[0]
-            for _col in df.columns:
-                if _col == "volume":
-                    df[_col] = df[_col] * _close
-                elif _col != "change":
-                    df[_col] = df[_col] / _close
-                else:
-                    pass
-            df.reset_index().to_csv(self.normalize_dir.joinpath(file_path.name), index=False)
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as worker:
-            file_list = list(self.normalize_dir.glob("*.csv"))
-            with tqdm(total=len(file_list)) as p_bar:
-                for _ in worker.map(_adj, file_list):
-                    p_bar.update()
-
-
-    def dump_data(self):
-        """dump yahoo data
-
-        Examples
-        ---------
-            $ python collector.py dump_data --normalize_dir ~/.qlib/stock_data/normalize_dir --qlib_dir ~/.qlib/stock_data/qlib_data
-
-        """
-        DumpData(csv_path=self.normalize_dir, qlib_dir=self.qlib_dir, works=self.max_workers).dump(
-            include_fields="close,open,high,low,volume,change,factor"
-        )
-
-    def download_data(self):
-        """download data from Internet
-
-        Examples
-        ---------
-            $ python collector.py download_data --source_dir ~/.qlib/stock_data/source
-
-        """
-        YahooCollector(self.source_dir, max_workers=self.max_workers).collector_data()
-
-    def collector_data(self):
-        """download -> normalize -> dump data
-
+        Parameters
+        ----------
+        max_collector_count: int
+            default 5
+        delay: float
+            time.sleep(delay), default 0
+        interval: str
+            freq, value from [1m, 1d], default 1m
+        start: str
+            start datetime, default "2000-01-01"
+        end: str
+            end datetime, default ``pd.Timestamp(datetime.datetime.now() + pd.Timedelta(days=1))``
+        check_data_length: bool
+            check data length, by default False
+        limit_nums: int
+            using for debug, by default None
         Examples
         -------
-            $ python collector.py collector_data --source_dir ~/.qlib/stock_data/source --normalize_dir ~/.qlib/stock_data/normalize_dir --qlib_dir ~/.qlib/stock_data/qlib_data
+        python collector.py collector_data --source_dir ~/.qlib/stock_data/source --normalize_dir ~/.qlib/stock_data/normalize --region CN --start 2020-11-01 --end 2020-11-10 --delay 0.1 --interval 1d
         """
-        self.download_data()
+        self.download_data(
+            max_collector_count=max_collector_count,
+            delay=delay,
+            start=start,
+            end=end,
+            interval=interval,
+            check_data_length=check_data_length,
+            limit_nums=limit_nums,
+        )
         self.normalize_data()
-        self.manual_adj_data()
-        self.dump_data()
 
 
 if __name__ == "__main__":

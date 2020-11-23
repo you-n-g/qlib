@@ -9,10 +9,10 @@ import numpy
 from setuptools import find_packages, setup, Extension
 
 # Package meta-data.
-NAME = "qlib"
-DESCRIPTION = "A Quantitative-research Library"
+NAME = "pyqlib"
+DESCRIPTION = "A Quantitative-research Platform"
 REQUIRES_PYTHON = ">=3.5.0"
-VERSION = "0.4.6.dev"
+VERSION = "0.5.1.dev0"
 
 # Detect Cython
 try:
@@ -46,14 +46,18 @@ REQUIRED = [
     "fire>=0.2.1",
     "statsmodels",
     "xlrd>=1.0.0",
-    "plotly==3.5.0",
+    "plotly==4.12.0",
     "matplotlib==3.1.3",
     "tables>=3.6.1",
     "pyyaml>=5.3.1",
+    "mlflow>=1.10.0",
     "tqdm",
     "loguru",
     "lightgbm",
     "tornado",
+    "joblib>=0.17.0",
+    "fire>=0.3.1",
+    "ruamel.yaml>=0.16.12",
 ]
 
 # Numpy include
@@ -61,7 +65,9 @@ NUMPY_INCLUDE = numpy.get_include()
 
 here = os.path.abspath(os.path.dirname(__file__))
 
-long_description = "TODO: to be completed"
+with open(os.path.join(here, "README.md"), encoding="utf-8") as f:
+    long_description = f.read()
+
 
 # Cython Extensions
 extensions = [
@@ -83,8 +89,11 @@ extensions = [
 setup(
     name=NAME,
     version=VERSION,
+    license="MIT Licence",
+    url="https://github.com/microsoft/qlib",
     description=DESCRIPTION,
     long_description=long_description,
+    long_description_content_type="text/markdown",
     python_requires=REQUIRES_PYTHON,
     packages=find_packages(exclude=("tests",)),
     # if your package is a single module, use this instead of 'packages':
@@ -92,7 +101,7 @@ setup(
     entry_points={
         # 'console_scripts': ['mycli=mymodule:cli'],
         "console_scripts": [
-            "estimator=qlib.contrib.estimator.launcher:run",
+            "qrun=qlib.workflow.cli:run",
         ],
     },
     ext_modules=extensions,
@@ -102,9 +111,15 @@ setup(
         # Trove classifiers
         # Full list: https://pypi.python.org/pypi?%3Aaction=list_classifiers
         # 'License :: OSI Approved :: MIT License',
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: Microsoft :: Windows",
+        "Operating System :: MacOS",
+        "License :: OSI Approved :: MIT License",
         "Development Status :: 3 - Alpha",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
 )

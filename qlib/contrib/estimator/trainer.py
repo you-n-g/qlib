@@ -10,14 +10,14 @@ import numpy as np
 from scipy.stats import pearsonr
 
 from ...log import get_module_logger, TimeInspector
-from .handler import BaseDataHandler
+from ...data.dataset.handler import DataHandlerLP
 from .launcher import CONFIG_MANAGER
 from .fetcher import create_fetcher_with_config
 from ...utils import drop_nan_by_y_index, transform_end_date
 
 
 class BaseTrainer(object):
-    def __init__(self, model_class, model_save_path, model_args, data_handler: BaseDataHandler, sacred_ex, **kwargs):
+    def __init__(self, model_class, model_save_path, model_args, data_handler: DataHandlerLP, sacred_ex, **kwargs):
         # 1. Model.
         self.model_class = model_class
         self.model_save_path = model_save_path
@@ -61,12 +61,11 @@ class BaseTrainer(object):
         """
         pass
 
-    @abstractmethod
     def get_test_performance(self):
         """
         Implement this method indicating how to get the performance of the model.
         """
-        pass
+        raise NotImplementedError(f"Please implement `get_test_performance`")
 
     def get_test_score(self):
         """
@@ -164,7 +163,10 @@ class StaticTrainer(BaseTrainer):
         return pred
 
     def get_test_performance(self):
-        model_score = self.model.score(self.x_test, self.y_test)
+        try:
+            model_score = self.model.score(self.x_test, self.y_test)
+        except NotImplementedError:
+            model_score = None
         # Remove rows from x, y and w, which contain Nan in any columns in y_test.
         x_test, y_test, __ = drop_nan_by_y_index(self.x_test, self.y_test)
         pred_test = self.model.predict(x_test)

@@ -9,17 +9,16 @@ Qlib Initialization
 Initialization
 =========================
 
-Please execute the following process to initialize ``Qlib``.
+Please follow the steps below to initialize ``Qlib``.
 
-- Download and prepare the Data: execute the following command to download the stock data.
+- Download and prepare the Data: execute the following command to download stock data. Please pay `attention` that the data is collected from `Yahoo Finance <https://finance.yahoo.com/lookup>`_ and the data might not be perfect. We recommend users to prepare their own data if they have high-quality datasets. Please refer to `Data  <../component/data.html#converting-csv-format-into-qlib-format>` for more information about customized dataset.
     .. code-block:: bash
     
-        python scripts/get_data.py qlib_data_cn --target_dir ~/.qlib/qlib_data/cn_data
+        python scripts/get_data.py qlib_data --target_dir ~/.qlib/qlib_data/cn_data --region cn
+    Please refer to `Data Preparation  <../component/data.html#data-preparation>`_ for more information about `get_data.py`,
 
-    Know more about how to use ``get_data.py``, refer to `Raw Data  <../advanced/data.html#raw-data>`_.
 
-
-- Run the initialization code: run the following code in python:
+- Initialize Qlib before calling other APIs: run following code in python.
 
     .. code-block:: Python
 
@@ -29,22 +28,23 @@ Please execute the following process to initialize ``Qlib``.
         provider_uri = "~/.qlib/qlib_data/cn_data"  # target_dir
         qlib.init(provider_uri=provider_uri, region=REG_CN)
     
-
+.. note::
+   Do not import qlib package in the repository directory  of ``Qlib``, otherwise, errors may occur.
 
 Parameters
 -------------------
 
-In fact, in addition to `provider_uri` and `region`, `qlib.init` has other parameters. The following are all the parameters of `qlib.init`:
+Besides `provider_uri` and `region`, `qlib.init` has other parameters. The following are several important parameters of `qlib.init`:
 
 - `provider_uri`
-    Type: str. The local directory where the data loaded by ``get_data.py`` is stored.
+    Type: str. The URI of the Qlib data. For example, it could be the location where the data loaded by ``get_data.py`` are stored.
 - `region`
-    Type: str, optional parameter(default: ``qlib.config.REG_CN``).
-        Currently: ``qlib.config.REG_US``('us') and ``qlib.config.REG_CN``('cn') is supported. Different value of  ``region`` will
-        result in different stock market mode.
-
+    Type: str, optional parameter(default: `qlib.config.REG_CN`).
+        Currently: ``qlib.config.REG_US`` ('us') and ``qlib.config.REG_CN`` ('cn') is supported. Different value of  `region` will result in different stock market mode.
         - ``qlib.config.REG_US``: US stock market.
         - ``qlib.config.REG_CN``: China stock market.
+
+        Different modes will result in different trading limitations and costs.
 - `redis_host`
     Type: str, optional parameter(default: "127.0.0.1"), host of `redis`
         The lock and cache mechanism relies on redis.
@@ -57,4 +57,16 @@ In fact, in addition to `provider_uri` and `region`, `qlib.init` has other param
 
     .. note::
         
-        If redis connection failed with `redis_host` and `redis_port`, cache will not be used! Please refer to `Cache <../advanced/cache.rst>`_.
+        If Qlib fails to connect redis via `redis_host` and `redis_port`, cache mechanism will not be used! Please refer to `Cache <../component/data.html#cache>`_ for details.
+- `exp_manager`
+    Type: dict, optional parameter, the setting of experiment manager to be used in qlib. Users can specify an experiment manager class, as well as the tracking URI for all the experiments. However, please be aware that we only support input of a dictionary in the following style for `exp_manager`.
+    ::
+
+        {
+            "class": "MLflowExpManager",
+            "module_path": "qlib.workflow.expm",
+            "kwargs": {
+                "uri": "python_execution_path/mlruns"),
+                "default_exp_name": "Experiment",
+            }
+        }

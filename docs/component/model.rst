@@ -6,14 +6,14 @@ Interday Model: Model Training & Prediction
 Introduction
 ===================
 
-``Interday Model`` is designed to make the prediction score about stocks. Users can use the ``Interday Model`` in an automatic workflow by ``Estimator``, please refer to `Estimator <estimator.html>`_.  
+``Interday Model`` is designed to make the `prediction score` about stocks. Users can use the ``Interday Model`` in an automatic workflow by ``Estimator``, please refer to `Estimator: Workflow Management <estimator.html>`_.  
 
-Because the components in ``Qlib`` are designed in a loosely-coupled way, ``Interday Model`` can be used as a independent module also.
+Because the components in ``Qlib`` are designed in a loosely-coupled way, ``Interday Model`` can be used as an independent module also.
 
 Base Class & Interface
 ======================
 
-``Qlib`` provides a base class `qlib.contrib.model.base.Model <../reference/api.html#module-qlib.contrib.model.base>`_, which all models should inherit from.
+``Qlib`` provides a base class `qlib.model.base.Model <../reference/api.html#module-qlib.model.base>`_ from which all models should inherit.
 
 The base class provides the following interfaces:
 
@@ -48,7 +48,7 @@ The base class provides the following interfaces:
             
             .. note::
             
-                The number and names of the columns is determined by the data handler, please refer to `Data Handler <data.html#data-handler>`_ and `Estimator Data <estimator.html#about-data>`_.
+                The number and names of the columns are determined by the data handler, please refer to `Data Handler <data.html#data-handler>`_ and `Estimator Data Section <estimator.html#data-section>`_.
             
         - `y_train`, pd.DataFrame type, train label
             The following example explains the value of `y_train`:
@@ -73,7 +73,7 @@ The base class provides the following interfaces:
 
             .. note::
 
-                The number and names of the columns is determined by the ``Data Handler``, please refer to `Data Handler <data.html#data-handler>`_.
+                The number and names of the columns are determined by the ``Data Handler``, please refer to `Data Handler <data.html#data-handler>`_.
 
         - `x_valid`, pd.DataFrame type, validation feature
             The format of `x_valid` is same as `x_train`
@@ -86,7 +86,7 @@ The base class provides the following interfaces:
             `w_train` is a pandas DataFrame, whose shape and index is same as `x_train`. The float value in `w_train` represents the weight of the feature at the same position in `x_train`.
 
         - `w_train`(Optional args, default is None), pd.DataFrame type, validation weight
-            `w_train` is a pandas DataFrame, whose shape and index is same as `x_valid`. The float value in `w_train` represents the weight of the feature at the same position in `x_train`.
+            `w_train` is a pandas DataFrame, whose shape and index is the same as `x_valid`. The float value in `w_train` represents the weight of the feature at the same position in `x_train`.
 
 - `predict(self, x_test, **kwargs)`
     - Predict test data 'x_test'
@@ -110,18 +110,18 @@ The base class provides the following interfaces:
             The format of `w_test` is same as `w_train` in `fit` method.
     - Return: float type, evaluation score
 
-For other interfaces such as `save`, `load`, `finetune`, please refer to `Model API <../reference/api.html#module-qlib.contrib.model.base>`_.
+For other interfaces such as `save`, `load`, `finetune`, please refer to `Model API <../reference/api.html#module-qlib.model.base>`_.
 
 Example
 ==================
 
-``Qlib`` provides ``LightGBM`` and ``DNN`` models as the baseline, the following steps shows how to run`` LightGBM`` as an independent module.
+``Qlib`` provides ``LightGBM`` and ``DNN`` models as the baseline, the following steps show how to run`` LightGBM`` as an independent module.
 
-- Initialize ``Qlib`` with `qlib.init` first, please refer to `initialization <initialization.rst>`_.
-- Run the following code to get the prediction score `pred_score`
+- Initialize ``Qlib`` with `qlib.init` first, please refer to `Initialization <../start/initialization.html>`_.
+- Run the following code to get the `prediction score` `pred_score`
     .. code-block:: Python
 
-        from qlib.contrib.estimator.handler import QLibDataHandlerClose
+        from qlib.contrib.data.handler import Alpha158
         from qlib.contrib.model.gbdt import LGBModel
 
         DATA_HANDLER_CONFIG = {
@@ -140,7 +140,7 @@ Example
             "test_end_date": "2020-08-01",
         }
 
-        x_train, y_train, x_validate, y_validate, x_test, y_test = QLibDataHandlerClose(
+        x_train, y_train, x_validate, y_validate, x_test, y_test = Alpha158(
             **DATA_HANDLER_CONFIG
         ).get_split_data(**TRAINER_CONFIG)
 
@@ -157,14 +157,13 @@ Example
             "num_threads": 20,
         }
         # use default model
-        # custom Model, refer to: TODO: Model API url
         model = LGBModel(**MODEL_CONFIG)
         model.fit(x_train, y_train, x_validate, y_validate)
         _pred = model.predict(x_test)
         pred_score = pd.DataFrame(index=_pred.index)
         pred_score["score"] = _pred.iloc(axis=1)[0]
 
-    .. note:: `QLibDataHandlerClose` is the data handler provided by ``Qlib``, please refer to `Data Handler <data.html#data-handler>`_.
+    .. note:: `Alpha158` is the data handler provided by ``Qlib``, please refer to `Data Handler <data.html#data-handler>`_.
 
 Also, the above example has been given in ``examples/train_backtest_analyze.ipynb``.
 
@@ -176,4 +175,4 @@ Qlib supports custom models. If users are interested in customizing their own mo
 
 API
 ===================
-Please refer to `Model API <../reference/api.html#module-qlib.contrib.model.base>`_.
+Please refer to `Model API <../reference/api.html#module-qlib.model.base>`_.

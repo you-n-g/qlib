@@ -6,18 +6,20 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import logging
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, mean_squared_error
-import logging
-from ...utils import unpack_archive_with_buffer, save_multiple_parts_file, create_save_path, drop_nan_by_y_index
-from ...log import get_module_logger, TimeInspector
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .base import Model
+from ...model.base import Model
+from ...data.dataset import DatasetH
+from ...data.dataset.handler import DataHandlerLP
+from ...utils import unpack_archive_with_buffer, save_multiple_parts_file, create_save_path, drop_nan_by_y_index
+from ...log import get_module_logger, TimeInspector
 
 
 class DNNModelPytorch(Model):
@@ -47,7 +49,7 @@ class DNNModelPytorch(Model):
         self,
         input_dim,
         output_dim,
-        layers=(256, 256, 128),
+        layers=(256, 512, 768, 1024, 768, 512, 256, 128, 64),
         lr=0.001,
         max_steps=300,
         batch_size=2000,
@@ -76,6 +78,7 @@ class DNNModelPytorch(Model):
         self.optimizer = optimizer.lower()
         self.loss_type = loss
         self.visible_GPU = GPU
+        self.use_gpu = torch.cuda.is_available()
 
         self.logger.info(
             "DNN parameters setting:"
@@ -90,7 +93,8 @@ class DNNModelPytorch(Model):
             "\noptimizer : {}"
             "\nloss_type : {}"
             "\neval_steps : {}"
-            "\nvisible_GPU : {}".format(
+            "\nvisible_GPU : {}"
+            "\nuse_GPU : {}".format(
                 layers,
                 lr,
                 max_steps,
@@ -103,6 +107,7 @@ class DNNModelPytorch(Model):
                 loss,
                 eval_steps,
                 GPU,
+                self.use_gpu,
             )
         )
 
@@ -133,28 +138,31 @@ class DNNModelPytorch(Model):
         )
 
         self._fitted = False
-        self.dnn_model.cuda()
-
-        # set the visible GPU
-        if self.visible_GPU:
-            os.environ["CUDA_VISIBLE_DEVICES"] = self.visible_GPU
+        if self.use_gpu:
+            self.dnn_model.cuda()
+            # set the visible GPU
+            if self.visible_GPU:
+                os.environ["CUDA_VISIBLE_DEVICES"] = self.visible_GPU
 
     def fit(
         self,
-        x_train,
-        y_train,
-        x_valid,
-        y_valid,
-        w_train=None,
-        w_valid=None,
+        dataset: DatasetH,
         evals_result=dict(),
         verbose=True,
         save_path=None,
     ):
 
-        if w_train is None:
+        df_train, df_valid = dataset.prepare(
+            ["train", "valid"], col_set=["feature", "label"], data_key=DataHandlerLP.DK_L
+        )
+        x_train, y_train = df_train["feature"], df_train["label"]
+        x_valid, y_valid = df_valid["feature"], df_valid["label"]
+
+        try:
+            wdf_train, wdf_valid = dataset.prepare(["train", "valid"], col_set=["weight"], data_key=DataHandlerLP.DK_L)
+            w_train, w_valid = wdf_train["weight"], wdf_valid["weight"]
+        except KeyError as e:
             w_train = pd.DataFrame(np.ones_like(y_train.values), index=y_train.index)
-        if w_valid is None:
             w_valid = pd.DataFrame(np.ones_like(y_valid.values), index=y_valid.index)
 
         save_path = create_save_path(save_path)
@@ -167,7 +175,7 @@ class DNNModelPytorch(Model):
         # train
         self.logger.info("training...")
         self._fitted = True
-        #return
+        # return
         # prepare training data
         x_train_values = torch.from_numpy(x_train.values).float()
         y_train_values = torch.from_numpy(y_train.values).float()
@@ -175,13 +183,14 @@ class DNNModelPytorch(Model):
         train_num = y_train_values.shape[0]
 
         # prepare validation data
-        x_val_cuda = torch.from_numpy(x_valid.values).float()
-        y_val_cuda = torch.from_numpy(y_valid.values).float()
-        w_val_cuda = torch.from_numpy(w_valid.values).float()
+        x_val_auto = torch.from_numpy(x_valid.values).float()
+        y_val_auto = torch.from_numpy(y_valid.values).float()
+        w_val_auto = torch.from_numpy(w_valid.values).float()
 
-        x_val_cuda = x_val_cuda.cuda()
-        y_val_cuda = y_val_cuda.cuda()
-        w_val_cuda = w_val_cuda.cuda()
+        if self.use_gpu:
+            x_val_auto = x_val_auto.cuda()
+            y_val_auto = y_val_auto.cuda()
+            w_val_auto = w_val_auto.cuda()
 
         for step in range(self.max_steps):
             if stop_steps >= self.early_stop_rounds:
@@ -193,24 +202,25 @@ class DNNModelPytorch(Model):
             self.train_optimizer.zero_grad()
 
             choice = np.random.choice(train_num, self.batch_size)
-            x_batch = x_train_values[choice]
-            y_batch = y_train_values[choice]
-            w_batch = w_train_values[choice]
+            x_batch_auto = x_train_values[choice]
+            y_batch_auto = y_train_values[choice]
+            w_batch_auto = w_train_values[choice]
 
-            x_batch_cuda = x_batch.float().cuda()
-            y_batch_cuda = y_batch.float().cuda()
-            w_batch_cuda = w_batch.float().cuda()
+            if self.use_gpu:
+                x_batch_auto = x_batch_auto.float().cuda()
+                y_batch_auto = y_batch_auto.float().cuda()
+                w_batch_auto = w_batch_auto.float().cuda()
 
             # forward
-            preds = self.dnn_model(x_batch_cuda)
-            cur_loss = self.get_loss(preds, w_batch_cuda, y_batch_cuda, self.loss_type)
+            preds = self.dnn_model(x_batch_auto)
+            cur_loss = self.get_loss(preds, w_batch_auto, y_batch_auto, self.loss_type)
             cur_loss.backward()
             self.train_optimizer.step()
             loss.update(cur_loss.item())
 
             # validation
             train_loss += loss.val
-            #print(loss.val)
+            # print(loss.val)
             if step and step % self.eval_steps == 0:
                 stop_steps += 1
                 train_loss /= self.eval_steps
@@ -220,8 +230,8 @@ class DNNModelPytorch(Model):
                     loss_val = AverageMeter()
 
                     # forward
-                    preds = self.dnn_model(x_val_cuda)
-                    cur_loss_val = self.get_loss(preds, w_val_cuda, y_val_cuda, self.loss_type)
+                    preds = self.dnn_model(x_val_auto)
+                    cur_loss_val = self.get_loss(preds, w_val_auto, y_val_auto, self.loss_type)
                     loss_val.update(cur_loss_val.item())
                 if verbose:
                     self.logger.info(
@@ -245,7 +255,8 @@ class DNNModelPytorch(Model):
 
         # restore the optimal parameters after training ??
         self.dnn_model.load_state_dict(torch.load(save_path))
-        torch.cuda.empty_cache()
+        if self.use_gpu:
+            torch.cuda.empty_cache()
 
     def get_loss(self, pred, w, target, loss_type):
         if loss_type == "mse":
@@ -258,22 +269,21 @@ class DNNModelPytorch(Model):
         else:
             raise NotImplementedError("loss {} is not supported!".format(loss_type))
 
-    def predict(self, x_test):
+    def predict(self, dataset):
         if not self._fitted:
             raise ValueError("model is not fitted yet!")
-        x_test = torch.from_numpy(x_test.values).float().cuda()
+        x_test_pd = dataset.prepare("test", col_set="feature")
+        x_test = torch.from_numpy(x_test_pd.values).float()
+        if self.use_gpu:
+            x_test = x_test.cuda()
         self.dnn_model.eval()
-        
-        with torch.no_grad():
-            preds = self.dnn_model(x_test).detach().cpu().numpy()
-        return preds
 
-    def score(self, x_test, y_test, w_test=None):
-        # Remove rows from x, y and w, which contain Nan in any columns in y_test.
-        x_test, y_test, w_test = drop_nan_by_y_index(x_test, y_test, w_test)
-        preds = self.predict(x_test)
-        w_test_weight = None if w_test is None else w_test.values
-        return self._scorer(y_test.values, preds, sample_weight=w_test_weight)
+        with torch.no_grad():
+            if self.use_gpu:
+                preds = self.dnn_model(x_test).detach().cpu().numpy()
+            else:
+                preds = self.dnn_model(x_test).detach().numpy()
+        return pd.Series(np.squeeze(preds), index=x_test_pd.index)
 
     def save(self, filename, **kwargs):
         with save_multiple_parts_file(filename) as model_dir:
@@ -291,9 +301,6 @@ class DNNModelPytorch(Model):
             # Load model
             self.dnn_model.load_state_dict(torch.load(_model_path))
         self._fitted = True
-
-    def finetune(self, x_train, y_train, x_valid, y_valid, w_train=None, w_valid=None, **kwargs):
-        self.fit(x_train, y_train, x_valid, y_valid, w_train=w_train, w_valid=w_valid, **kwargs)
 
 
 class AverageMeter(object):
@@ -316,20 +323,20 @@ class AverageMeter(object):
 
 
 class Net(nn.Module):
-    def __init__(self, input_dim, output_dim, layers=(256, 256, 256), loss="mse"):
+    def __init__(self, input_dim, output_dim, layers=(256, 512, 768, 512, 256, 128, 64), loss="mse"):
         super(Net, self).__init__()
         layers = [input_dim] + list(layers)
         dnn_layers = []
-        drop_input = nn.Dropout(0.1)
+        drop_input = nn.Dropout(0.05)
         dnn_layers.append(drop_input)
         for i, (input_dim, hidden_units) in enumerate(zip(layers[:-1], layers[1:])):
             fc = nn.Linear(input_dim, hidden_units)
             activation = nn.ReLU()
             bn = nn.BatchNorm1d(hidden_units)
-            drop = nn.Dropout(0.1)
-            seq = nn.Sequential(fc, bn, activation, drop)
+            seq = nn.Sequential(fc, bn, activation)
             dnn_layers.append(seq)
-
+        drop_input = nn.Dropout(0.05)
+        dnn_layers.append(drop_input)
         if loss == "mse":
             fc = nn.Linear(hidden_units, output_dim)
             dnn_layers.append(fc)

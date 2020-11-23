@@ -5,13 +5,22 @@
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import numpy as np
 import pandas as pd
 
+from scipy.stats import percentileofscore
+
 from .base import Expression, ExpressionOps
-from ._libs.rolling import rolling_slope, rolling_rsquare, rolling_resi
-from ._libs.expanding import expanding_slope, expanding_rsquare, expanding_resi
 from ..log import get_module_logger
+
+try:
+    from ._libs.rolling import rolling_slope, rolling_rsquare, rolling_resi
+    from ._libs.expanding import expanding_slope, expanding_rsquare, expanding_resi
+except ImportError as err:
+    print(err)
+    print("Do not import qlib package in the repository directory")
+    sys.exit(-1)
 
 __all__ = (
     "Ref",
@@ -681,6 +690,8 @@ class Rolling(ExpressionOps):
         # isnull = series.isnull() # NOTE: isnull = NaN, inf is not null
         if self.N == 0:
             series = getattr(series.expanding(min_periods=1), self.func)()
+        elif 0 < self.N < 1:
+            series = series.ewm(alpha=self.N, min_periods=1).mean()
         else:
             series = getattr(series.rolling(self.N, min_periods=1), self.func)()
             # series.iloc[:self.N-1] = np.nan
@@ -690,6 +701,8 @@ class Rolling(ExpressionOps):
     def get_longest_back_rolling(self):
         if self.N == 0:
             return np.inf
+        if 0 < self.N < 1:
+            return int(np.log(1e-6) / np.log(1 - self.N))  # (1 - N)**window == 1e-6
         return self.feature.get_longest_back_rolling() + self.N - 1
 
     def get_extended_window_size(self):
@@ -698,6 +711,11 @@ class Rolling(ExpressionOps):
             # remove such support for N == 0?
             get_module_logger(self.__class__.__name__).warning("The Rolling(ATTR, 0) will not be accurately calculated")
             return self.feature.get_extended_window_size()
+        elif 0 < self.N < 1:
+            lft_etd, rght_etd = self.feature.get_extended_window_size()
+            size = int(np.log(1e-6) / np.log(1 - self.N))
+            lft_etd = max(lft_etd + size - 1, lft_etd)
+            return lft_etd, rght_etd
         else:
             lft_etd, rght_etd = self.feature.get_extended_window_size()
             lft_etd = max(lft_etd + self.N - 1, lft_etd)
@@ -914,10 +932,7 @@ class IdxMax(Rolling):
         if self.N == 0:
             series = series.expanding(min_periods=1).apply(lambda x: x.argmax() + 1, raw=True)
         else:
-            series = series.rolling(self.N, min_periods=1).apply(
-                lambda x: x.argmax() + 1,
-                raw=True,
-            )
+            series = series.rolling(self.N, min_periods=1).apply(lambda x: x.argmax() + 1, raw=True)
         return series
 
 
@@ -965,10 +980,7 @@ class IdxMin(Rolling):
         if self.N == 0:
             series = series.expanding(min_periods=1).apply(lambda x: x.argmin() + 1, raw=True)
         else:
-            series = series.rolling(self.N, min_periods=1).apply(
-                lambda x: x.argmin() + 1,
-                raw=True,
-            )
+            series = series.rolling(self.N, min_periods=1).apply(lambda x: x.argmin() + 1, raw=True)
         return series
 
 
@@ -1087,7 +1099,7 @@ class Rank(Rolling):
             x1 = x[~np.isnan(x)]
             if x1.shape[0] == 0:
                 return np.nan
-            return (x1.argsort()[-1] + 1) / len(x1)
+            return percentileofscore(x1, x1[-1]) / len(x1)
 
         if self.N == 0:
             series = series.expanding(min_periods=1).apply(rank, raw=True)
@@ -1194,11 +1206,12 @@ class Rsquare(Rolling):
         super(Rsquare, self).__init__(feature, N, "rsquare")
 
     def _load_internal(self, instrument, start_index, end_index, freq):
-        series = self.feature.load(instrument, start_index, end_index, freq)
+        _series = self.feature.load(instrument, start_index, end_index, freq)
         if self.N == 0:
-            series = pd.Series(expanding_rsquare(series.values), index=series.index)
+            series = pd.Series(expanding_rsquare(_series.values), index=_series.index)
         else:
-            series = pd.Series(rolling_rsquare(series.values, self.N), index=series.index)
+            series = pd.Series(rolling_rsquare(_series.values, self.N), index=_series.index)
+            series.loc[np.isclose(_series.rolling(self.N, min_periods=1).std(), 0, atol=2e-05)] = np.nan
         return series
 
 
@@ -1272,7 +1285,7 @@ class EMA(Rolling):
     ----------
     feature : Expression
         feature instance
-    N : int
+    N : int, float
         rolling window size
 
     Returns
@@ -1295,6 +1308,8 @@ class EMA(Rolling):
 
         if self.N == 0:
             series = series.expanding(min_periods=1).apply(exp_weighted_mean, raw=True)
+        elif 0 < self.N < 1:
+            series = series.ewm(alpha=self.N, min_periods=1).mean()
         else:
             series = series.ewm(span=self.N, min_periods=1).mean()
         return series
@@ -1341,10 +1356,7 @@ class PairRolling(ExpressionOps):
         if self.N == 0:
             return np.inf
         return (
-            max(
-                self.feature_left.get_longest_back_rolling(),
-                self.feature_right.get_longest_back_rolling(),
-            )
+            max(self.feature_left.get_longest_back_rolling(), self.feature_right.get_longest_back_rolling())
             + self.N
             - 1
         )
@@ -1381,6 +1393,18 @@ class Corr(PairRolling):
 
     def __init__(self, feature_left, feature_right, N):
         super(Corr, self).__init__(feature_left, feature_right, N, "corr")
+
+    def _load_internal(self, instrument, start_index, end_index, freq):
+        res = super(Corr, self)._load_internal(instrument, start_index, end_index, freq)
+
+        # NOTE: Load uses MemCache, so calling load again will not cause performance degradation
+        series_left = self.feature_left.load(instrument, start_index, end_index, freq)
+        series_right = self.feature_right.load(instrument, start_index, end_index, freq)
+        res.loc[
+            np.isclose(series_left.rolling(self.N, min_periods=1).std(), 0, atol=2e-05)
+            | np.isclose(series_right.rolling(self.N, min_periods=1).std(), 0, atol=2e-05)
+        ] = np.nan
+        return res
 
 
 class Cov(PairRolling):

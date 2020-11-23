@@ -48,20 +48,12 @@ def _calculate_report_data(df: pd.DataFrame) -> pd.DataFrame:
     report_df["cum_return_w_cost"] = (df["return"] - df["cost"]).cumsum()
     # report_df['cum_return'] - report_df['cum_return'].cummax()
     report_df["return_wo_mdd"] = _calculate_mdd(report_df["cum_return_wo_cost"])
-    report_df["return_w_cost_mdd"] = _calculate_mdd(
-        (df["return"] - df["cost"]).cumsum()
-    )
+    report_df["return_w_cost_mdd"] = _calculate_mdd((df["return"] - df["cost"]).cumsum())
 
     report_df["cum_ex_return_wo_cost"] = (df["return"] - df["bench"]).cumsum()
-    report_df["cum_ex_return_w_cost"] = (
-        df["return"] - df["bench"] - df["cost"]
-    ).cumsum()
-    report_df["cum_ex_return_wo_cost_mdd"] = _calculate_mdd(
-        (df["return"] - df["bench"]).cumsum()
-    )
-    report_df["cum_ex_return_w_cost_mdd"] = _calculate_mdd(
-        (df["return"] - df["cost"] - df["bench"]).cumsum()
-    )
+    report_df["cum_ex_return_w_cost"] = (df["return"] - df["bench"] - df["cost"]).cumsum()
+    report_df["cum_ex_return_wo_cost_mdd"] = _calculate_mdd((df["return"] - df["bench"]).cumsum())
+    report_df["cum_ex_return_w_cost_mdd"] = _calculate_mdd((df["return"] - df["cost"] - df["bench"]).cumsum())
     # return_wo_mdd , return_w_cost_mdd,  cum_ex_return_wo_cost_mdd, cum_ex_return_w
 
     report_df["turnover"] = df["turnover"]
@@ -83,11 +75,12 @@ def _report_figure(df: pd.DataFrame) -> [list, tuple]:
     max_start_date, max_end_date = _calculate_maximum(report_df)
     ex_max_start_date, ex_max_end_date = _calculate_maximum(report_df, True)
 
+    index_name = report_df.index.name
     _temp_df = report_df.reset_index()
     _temp_df.loc[-1] = 0
     _temp_df = _temp_df.shift(1)
-    _temp_df.loc[0, "index"] = "T0"
-    _temp_df.set_index("index", inplace=True)
+    _temp_df.loc[0, index_name] = "T0"
+    _temp_df.set_index(index_name, inplace=True)
     _temp_df.iloc[0] = 0
     report_df = _temp_df
 
@@ -107,19 +100,13 @@ def _report_figure(df: pd.DataFrame) -> [list, tuple]:
         ("cum_ex_return_wo_cost_mdd", dict(row=7, col=1, graph_kwargs=_temp_fill_args)),
     ]
 
-    _subplot_layout = dict(
-        xaxis=dict(showline=True, type="category", tickangle=45),
-        yaxis=dict(zeroline=True, showline=True, showticklabels=True),
-    )
-    for i in range(2, 8):
+    _subplot_layout = dict()
+    for i in range(1, 8):
         # yaxis
-        _subplot_layout.update(
-            {
-                "yaxis{}".format(i): dict(
-                    zeroline=True, showline=True, showticklabels=True
-                )
-            }
-        )
+        _subplot_layout.update({"yaxis{}".format(i): dict(zeroline=True, showline=True, showticklabels=True)})
+        _show_line = i == 7
+        _subplot_layout.update({"xaxis{}".format(i): dict(showline=_show_line, type="category", tickangle=45)})
+
     _layout_style = dict(
         height=1200,
         title=" ",
@@ -134,7 +121,9 @@ def _report_figure(df: pd.DataFrame) -> [list, tuple]:
                 "y1": 1,
                 "fillcolor": "#d3d3d3",
                 "opacity": 0.3,
-                "line": {"width": 0,},
+                "line": {
+                    "width": 0,
+                },
             },
             {
                 "type": "rect",
@@ -146,7 +135,9 @@ def _report_figure(df: pd.DataFrame) -> [list, tuple]:
                 "y1": 0.55,
                 "fillcolor": "#d3d3d3",
                 "opacity": 0.3,
-                "line": {"width": 0,},
+                "line": {
+                    "width": 0,
+                },
             },
         ],
     )
@@ -200,13 +191,13 @@ def report_graph(report_df: pd.DataFrame, show_notebook: bool = True) -> [list, 
 
             .. code-block:: python
 
-                            return	    cost	    bench	    turnover
+                            return      cost        bench       turnover
                 date
-                2017-01-04	0.003421	0.000864	0.011693	0.576325
-                2017-01-05	0.000508	0.000447	0.000721	0.227882
-                2017-01-06	-0.003321	0.000212	-0.004322	0.102765
-                2017-01-09	0.006753	0.000212	0.006874	0.105864
-                2017-01-10	-0.000416	0.000440	-0.003350	0.208396
+                2017-01-04  0.003421    0.000864    0.011693    0.576325
+                2017-01-05  0.000508    0.000447    0.000721    0.227882
+                2017-01-06  -0.003321   0.000212    -0.004322   0.102765
+                2017-01-09  0.006753    0.000212    0.006874    0.105864
+                2017-01-10  -0.000416   0.000440    -0.003350   0.208396
 
 
     :param show_notebook: whether to display graphics in notebook, the default is **True**

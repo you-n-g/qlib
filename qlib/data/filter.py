@@ -7,14 +7,12 @@ from abc import abstractmethod
 import re
 import pandas as pd
 import numpy as np
-import six
 import abc
 
 from .data import Cal, DatasetD
 
 
-@six.add_metaclass(abc.ABCMeta)
-class BaseDFilter(object):
+class BaseDFilter(abc.ABC):
     """Dynamic Instruments Filter Abstract class
 
     Users can override this class to construct their own filter
@@ -50,7 +48,6 @@ class BaseDFilter(object):
         raise NotImplementedError("Subclass of BaseDFilter must reimplement `to_config` method")
 
 
-@six.add_metaclass(abc.ABCMeta)
 class SeriesDFilter(BaseDFilter):
     """Dynamic Instruments Filter Abstract class to filter a series of certain features
 
@@ -142,6 +139,7 @@ class SeriesDFilter(BaseDFilter):
             the series of bool value indicating whether the date satisfies the filter condition and exists in target timestamp
         """
         fstart, fend = list(filter_series.keys())[0], list(filter_series.keys())[-1]
+        filter_series = filter_series.astype("bool")  # Make sure the filter_series is boolean
         timestamp_series[fstart:fend] = timestamp_series[fstart:fend] & filter_series
         return timestamp_series
 

@@ -12,7 +12,7 @@ from get_data import GetData
 import qlib
 from qlib.data import D
 
-DATA_DIR = Path(__file__).parent.joinpath("test_data")
+DATA_DIR = Path(__file__).parent.joinpath("test_get_data")
 SOURCE_DIR = DATA_DIR.joinpath("source")
 SOURCE_DIR.mkdir(exist_ok=True, parents=True)
 QLIB_DIR = DATA_DIR.joinpath("qlib")
@@ -37,7 +37,7 @@ class TestGetData(unittest.TestCase):
 
     def test_0_qlib_data(self):
 
-        GetData().qlib_data_cn(QLIB_DIR)
+        GetData().qlib_data(name="qlib_data_simple", target_dir=QLIB_DIR, region="cn", interval="1d", version="latest")
         df = D.features(D.instruments("csi300"), self.FIELDS)
         self.assertListEqual(list(df.columns), self.FIELDS, "get qlib data failed")
         self.assertFalse(df.dropna().empty, "get qlib data failed")
@@ -45,7 +45,7 @@ class TestGetData(unittest.TestCase):
     def test_1_csv_data(self):
         GetData().csv_data_cn(SOURCE_DIR)
         stock_name = set(map(lambda x: x.name[:-4].upper(), SOURCE_DIR.glob("*.csv")))
-        self.assertEqual(len(stock_name), 96, "get csv data failed")
+        self.assertEqual(len(stock_name), 85, "get csv data failed")
 
 
 if __name__ == "__main__":

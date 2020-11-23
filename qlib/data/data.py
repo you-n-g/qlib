@@ -7,7 +7,6 @@ from __future__ import print_function
 
 import os
 import abc
-import six
 import time
 import queue
 import bisect
@@ -16,6 +15,7 @@ import importlib
 import traceback
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from multiprocessing import Pool
 
 from .cache import H
@@ -24,11 +24,11 @@ from .ops import *
 from ..log import get_module_logger
 from ..utils import parse_field, read_bin, hash_args, normalize_cache_fields
 from .base import Feature
-from .cache import ServerDatasetCache, ServerExpressionCache
+from .cache import DiskDatasetCache, DiskExpressionCache
+from ..utils import Wrapper, init_instance_by_config, register_wrapper, get_module_by_module_path
 
 
-@six.add_metaclass(abc.ABCMeta)
-class CalendarProvider(object):
+class CalendarProvider(abc.ABC):
     """Calendar provider base class
 
     Provide calendar data.
@@ -128,8 +128,7 @@ class CalendarProvider(object):
         return hash_args(start_time, end_time, freq, future)
 
 
-@six.add_metaclass(abc.ABCMeta)
-class InstrumentProvider(object):
+class InstrumentProvider(abc.ABC):
     """Instrument provider base class
 
     Provide instrument data.
@@ -213,9 +212,22 @@ class InstrumentProvider(object):
             return cls.LIST
         raise ValueError(f"Unknown instrument type {inst}")
 
+    def convert_instruments(self, instrument):
+        _instruments_map = getattr(self, "_instruments_map", None)
+        if _instruments_map is None:
+            _df_list = []
+            # FIXME: each process will read these files
+            for _path in Path(C.get_data_path()).joinpath("instruments").glob("*.txt"):
+                _df = pd.read_csv(_path, sep="\t", names=["inst", "start_datetime", "end_datetime", "save_inst"])
+                _df_list.append(_df.iloc[:, [0, -1]])
+            df = pd.concat(_df_list, sort=False).sort_values("save_inst")
+            df = df.drop_duplicates(subset=["save_inst"], keep="first").fillna(axis=1, method="ffill")
+            _instruments_map = df.set_index("inst").iloc[:, 0].to_dict()
+            setattr(self, "_instruments_map", _instruments_map)
+        return _instruments_map.get(instrument, instrument)
 
-@six.add_metaclass(abc.ABCMeta)
-class FeatureProvider(object):
+
+class FeatureProvider(abc.ABC):
     """Feature provider class
 
     Provide feature data.
@@ -246,8 +258,7 @@ class FeatureProvider(object):
         raise NotImplementedError("Subclass of FeatureProvider must implement `feature` method")
 
 
-@six.add_metaclass(abc.ABCMeta)
-class ExpressionProvider(object):
+class ExpressionProvider(abc.ABC):
     """Expression provider class
 
     Provide Expression data.
@@ -298,8 +309,7 @@ class ExpressionProvider(object):
         raise NotImplementedError("Subclass of ExpressionProvider must implement `Expression` method")
 
 
-@six.add_metaclass(abc.ABCMeta)
-class DatasetProvider(object):
+class DatasetProvider(abc.ABC):
     """Dataset provider class
 
     Provide Dataset data.
@@ -357,7 +367,7 @@ class DatasetProvider(object):
             whether to skip(0)/use(1)/replace(2) disk_cache
 
         """
-        return ServerDatasetCache._uri(instruments, fields, start_time, end_time, freq, disk_cache)
+        return DiskDatasetCache._uri(instruments, fields, start_time, end_time, freq, disk_cache)
 
     @staticmethod
     def get_instruments_d(instruments, freq):
@@ -407,11 +417,11 @@ class DatasetProvider(object):
         normalize_column_names = normalize_cache_fields(column_names)
         data = dict()
         # One process for one task, so that the memory will be freed quicker.
+        workers = min(C.kernels, len(instruments_d))
         if C.maxtasksperchild is None:
-            p = Pool(processes=C.kernels)
+            p = Pool(processes=workers)
         else:
-            p = Pool(processes=C.kernels, maxtasksperchild=C.maxtasksperchild)
-
+            p = Pool(processes=workers, maxtasksperchild=C.maxtasksperchild)
         if isinstance(instruments_d, dict):
             for inst, spans in instruments_d.items():
                 data[inst] = p.apply_async(
@@ -452,14 +462,14 @@ class DatasetProvider(object):
 
         if len(new_data) > 0:
             data = pd.concat(new_data, names=["instrument"], sort=False)
-            data = ServerDatasetCache.cache_to_origin_data(data, column_names)
+            data = DiskDatasetCache.cache_to_origin_data(data, column_names)
         else:
             data = pd.DataFrame(columns=column_names)
 
         return data
 
     @staticmethod
-    def expression_calculator(inst, start_time, end_time, freq, column_names, spans=None, C=None):
+    def expression_calculator(inst, start_time, end_time, freq, column_names, spans=None, g_config=None):
         """
         Calculate the expressions for one instrument, return a df result.
         If the expression has been calculated before, load from cache.
@@ -467,6 +477,9 @@ class DatasetProvider(object):
         return value: A data frame with index 'datetime' and other data columns.
 
         """
+        # FIXME: Windows OS or MacOS using spawn: https://docs.python.org/3.8/library/multiprocessing.html?highlight=spawn#contexts-and-start-methods
+        global C
+        C = g_config
         # NOTE: This place is compatible with windows, windows multi-process is spawn
         if getattr(ExpressionD, "_provider", None) is None:
             register_all_wrappers()
@@ -502,10 +515,7 @@ class LocalCalendarProvider(CalendarProvider):
     @property
     def _uri_cal(self):
         """Calendar file uri."""
-        if self.remote:
-            return os.path.join(C.mount_path, "calendars", "{}.txt")
-        else:
-            return os.path.join(C.provider_uri, "calendars", "{}.txt")
+        return os.path.join(C.get_data_path(), "calendars", "{}.txt")
 
     def _load_calendar(self, freq, future):
         """Load original calendar timestamp from file.
@@ -568,26 +578,18 @@ class LocalInstrumentProvider(InstrumentProvider):
     @property
     def _uri_inst(self):
         """Instrument file uri."""
-        return os.path.join(C.provider_uri, "instruments", "{}.txt")
+        return os.path.join(C.get_data_path(), "instruments", "{}.txt")
 
     def _load_instruments(self, market):
         fname = self._uri_inst.format(market)
         if not os.path.exists(fname):
             raise ValueError("instruments not exists for market " + market)
         _instruments = dict()
-        with open(fname) as f:
-            for line in f:
-                inst_time = line.strip().split()
-                inst = inst_time[0]
-                if len(inst_time) == 3:
-                    # `day`
-                    begin = inst_time[1]
-                    end = inst_time[2]
-                elif len(inst_time) == 5:
-                    # `1min`
-                    begin = inst_time[1] + " " + inst_time[2]
-                    end = inst_time[3] + " " + inst_time[4]
-                _instruments.setdefault(inst, []).append((pd.Timestamp(begin), pd.Timestamp(end)))
+        df = pd.read_csv(fname, sep="\t", names=["inst", "start_datetime", "end_datetime", "save_inst"])
+        df["start_datetime"] = pd.to_datetime(df["start_datetime"])
+        df["end_datetime"] = pd.to_datetime(df["end_datetime"])
+        for row in df.itertuples(index=False):
+            _instruments.setdefault(row[0], []).append((row[1], row[2]))
         return _instruments
 
     def list_instruments(self, instruments, start_time=None, end_time=None, freq="day", as_list=False):
@@ -637,18 +639,16 @@ class LocalFeatureProvider(FeatureProvider):
     @property
     def _uri_data(self):
         """Static feature file uri."""
-        if self.remote:
-            return os.path.join(C.mount_path, "features", "{}", "{}.{}.bin")
-        else:
-            return os.path.join(C.provider_uri, "features", "{}", "{}.{}.bin")
+        return os.path.join(C.get_data_path(), "features", "{}", "{}.{}.bin")
 
     def feature(self, instrument, field, start_index, end_index, freq):
         # validate
         field = str(field).lower()[1:]
+        instrument = Inst.convert_instruments(instrument)
         uri_data = self._uri_data.format(instrument.lower(), field, freq)
         if not os.path.exists(uri_data):
             get_module_logger("data").warning("WARN: data not found for %s.%s" % (instrument, field))
-            return pd.Series()
+            return pd.Series(dtype=np.float32)
             # raise ValueError('uri_data not found: ' + uri_data)
         # load
         series = read_bin(uri_data, start_index, end_index)
@@ -672,9 +672,11 @@ class LocalExpressionProvider(ExpressionProvider):
         lft_etd, rght_etd = expression.get_extended_window_size()
         series = expression.load(instrument, max(0, start_index - lft_etd), end_index + rght_etd, freq)
         # Ensure that each column type is consistent
-        # FIXME: The stock data is currently float. If there is other types of data, this part needs to be re-implemented.
+        # FIXME:
+        # 1) The stock data is currently float. If there is other types of data, this part needs to be re-implemented.
+        # 2) The the precision should be configurable
         try:
-            series = series.astype(float)
+            series = series.astype(np.float32)
         except ValueError:
             pass
         if not series.empty:
@@ -718,11 +720,11 @@ class LocalDatasetProvider(DatasetProvider):
             return
         start_time = cal[0]
         end_time = cal[-1]
-
+        workers = min(C.kernels, len(instruments_d))
         if C.maxtasksperchild is None:
-            p = Pool(processes=C.kernels)
+            p = Pool(processes=workers)
         else:
-            p = Pool(processes=C.kernels, maxtasksperchild=C.maxtasksperchild)
+            p = Pool(processes=workers, maxtasksperchild=C.maxtasksperchild)
 
         for inst in instruments_d:
             p.apply_async(
@@ -914,8 +916,8 @@ class ClientDatasetProvider(DatasetProvider):
             get_module_logger("data").debug("get result")
             try:
                 # pre-mound nfs, used for demo
-                mnt_feature_uri = os.path.join(C.mount_path, C.dataset_cache_dir_name, feature_uri)
-                df = ServerDatasetCache.read_data_from_cache(mnt_feature_uri, start_time, end_time, fields)
+                mnt_feature_uri = os.path.join(C.get_data_path(), C.dataset_cache_dir_name, feature_uri)
+                df = DiskDatasetCache.read_data_from_cache(mnt_feature_uri, start_time, end_time, fields)
                 get_module_logger("data").debug("finish slicing data")
                 if return_uri:
                     return df, feature_uri
@@ -1028,44 +1030,6 @@ class ClientProvider(BaseProvider):
             DatasetD.set_conn(self.client)
 
 
-class Wrapper(object):
-    """Data Provider Wrapper"""
-
-    def __init__(self):
-        self._provider = None
-
-    def register(self, provider):
-        self._provider = provider
-
-    def __getattr__(self, key):
-        if self._provider is None:
-            raise AttributeError("Please run qlib.init() first using qlib")
-        return getattr(self._provider, key)
-
-
-def get_cls_from_name(cls_name):
-    return getattr(importlib.import_module(".data", package="qlib"), cls_name)
-
-
-def get_provider_obj(config, **params):
-    if isinstance(config, dict):
-        params.update(config["kwargs"])
-        config = config["class"]
-    return get_cls_from_name(config)(**params)
-
-
-def register_wrapper(wrapper, cls_or_obj):
-    """register_wrapper
-
-    :param wrapper: A wrapper of all kinds of providers
-    :param cls_or_obj:  A class or class name or object instance in data/data.py
-    """
-    if isinstance(cls_or_obj, str):
-        cls_or_obj = get_cls_from_name(cls_or_obj)
-    obj = cls_or_obj() if isinstance(cls_or_obj, type) else cls_or_obj
-    wrapper.register(obj)
-
-
 Cal = Wrapper()
 Inst = Wrapper()
 FeatureD = Wrapper()
@@ -1077,34 +1041,35 @@ D = Wrapper()
 def register_all_wrappers():
     """register_all_wrappers"""
     logger = get_module_logger("data")
+    module = get_module_by_module_path("qlib.data")
 
-    _calendar_provider = get_provider_obj(C.calendar_provider)
+    _calendar_provider = init_instance_by_config(C.calendar_provider, module)
     if getattr(C, "calendar_cache", None) is not None:
-        _calendar_provider = get_provider_obj(C.calendar_cache, provider=_calendar_provider)
-    register_wrapper(Cal, _calendar_provider)
+        _calendar_provider = init_instance_by_config(C.calendar_cache, module, provide=_calendar_provider)
+    register_wrapper(Cal, _calendar_provider, "qlib.data")
     logger.debug(f"registering Cal {C.calendar_provider}-{C.calenar_cache}")
 
-    register_wrapper(Inst, C.instrument_provider)
+    register_wrapper(Inst, C.instrument_provider, "qlib.data")
     logger.debug(f"registering Inst {C.instrument_provider}")
 
     if getattr(C, "feature_provider", None) is not None:
-        feature_provider = get_provider_obj(C.feature_provider)
-        register_wrapper(FeatureD, feature_provider)
+        feature_provider = init_instance_by_config(C.feature_provider, module)
+        register_wrapper(FeatureD, feature_provider, "qlib.data")
         logger.debug(f"registering FeatureD {C.feature_provider}")
 
     if getattr(C, "expression_provider", None) is not None:
         # This provider is unnecessary in client provider
-        _eprovider = get_provider_obj(C.expression_provider)
+        _eprovider = init_instance_by_config(C.expression_provider, module)
         if getattr(C, "expression_cache", None) is not None:
-            _eprovider = get_provider_obj(C.expression_cache, provider=_eprovider)
-        register_wrapper(ExpressionD, _eprovider)
+            _eprovider = init_instance_by_config(C.expression_cache, module, provider=_eprovider)
+        register_wrapper(ExpressionD, _eprovider, "qlib.data")
         logger.debug(f"registering ExpressioneD {C.expression_provider}-{C.expression_cache}")
 
-    _dprovider = get_provider_obj(C.dataset_provider)
+    _dprovider = init_instance_by_config(C.dataset_provider, module)
     if getattr(C, "dataset_cache", None) is not None:
-        _dprovider = get_provider_obj(C.dataset_cache, provider=_dprovider)
-    register_wrapper(DatasetD, _dprovider)
+        _dprovider = init_instance_by_config(C.dataset_cache, module, provider=_dprovider)
+    register_wrapper(DatasetD, _dprovider, "qlib.data")
     logger.debug(f"registering DataseteD {C.dataset_provider}-{C.dataset_cache}")
 
-    register_wrapper(D, C.provider)
+    register_wrapper(D, C.provider, "qlib.data")
     logger.debug(f"registering D {C.provider}")

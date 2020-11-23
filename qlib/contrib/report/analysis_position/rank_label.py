@@ -46,7 +46,7 @@ def _get_figure_with_position(
 
     _res_df = pd.DataFrame.from_dict(res_dict, orient="index")
     # FIXME: support HIGH-FREQ
-    _res_df.index = _res_df.index.strftime('%Y-%m-%d')
+    _res_df.index = _res_df.index.strftime("%Y-%m-%d")
     for _col in _res_df.columns:
         yield ScatterGraph(
             _res_df.loc[:, [_col]],
@@ -99,18 +99,18 @@ def rank_label_graph(
 
     :param position: position data; **qlib.contrib.backtest.backtest.backtest** result
     :param label_data: **D.features** result; index is **pd.MultiIndex**, index name is **[instrument, datetime]**; columns names is **[label]**.
-    **The ``label`` T is the change from T to T+1**, it is recommended to use ``close``, example: D.features(D.instruments('csi500'), ['Ref($close, -1)/$close-1'])
+    **The label T is the change from T to T+1**, it is recommended to use ``close``, example: `D.features(D.instruments('csi500'), ['Ref($close, -1)/$close-1'])`
 
 
             .. code-block:: python
 
                                                 label
-                instrument	datetime
-                SH600004        2017-12-11	-0.013502
-                                2017-12-12	-0.072367
-                                2017-12-13	-0.068605
-                                2017-12-14	0.012440
-                                2017-12-15	-0.102778
+                instrument  datetime
+                SH600004        2017-12-11  -0.013502
+                                2017-12-12  -0.072367
+                                2017-12-13  -0.068605
+                                2017-12-14  0.012440
+                                2017-12-15  -0.102778
 
 
     :param start_date: start date
