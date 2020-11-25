@@ -30,7 +30,7 @@ if __name__ == "__main__":
         sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("scripts")))
         from get_data import GetData
 
-        GetData().qlib_data(target_dir=provider_uri, region=REG_CN)
+        GetData().qlib_data(target_dir=provider_uri)
 
     qlib.init(provider_uri=provider_uri, region=REG_CN)
 
@@ -73,6 +73,7 @@ if __name__ == "__main__":
                 "metric": "IC",
                 "loss": "mse",
                 "base_model": "GRU",
+                "with_pretrain": True,
                 "seed": 0,
                 "GPU": 0,
             },
@@ -100,7 +101,7 @@ if __name__ == "__main__":
     # model = train_model(task)
     model = init_instance_by_config(task["model"])
     dataset = init_instance_by_config(task["dataset"])
-    model.fit(dataset)
+    model.fit(dataset)#, save_path='benchmarks/GATs/model_gat_lstm.pkl')
 
     pred_score = model.predict(dataset)
 
