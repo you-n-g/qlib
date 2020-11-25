@@ -94,26 +94,31 @@ class ExpManager:
         When user specify experiment id and name, the method will try to return the specific experiment.
         When user does not provide recorder id or name, the method will try to return the current active experiment.
         The `create` argument determines whether the method will automatically create a new experiment according
-        to user's specification if the experiment hasn't been created before
+        to user's specification if the experiment hasn't been created before.
 
-        If `create` is True:
-            If R's running:
-                1) no id or name specified, return the active experiment.
-                2) if id or name is specified, return the specified experiment. If no such exp found,
-                create a new experiment with given id or name, and the experiment is set to be running.
-            If R's not running:
-                1) no id or name specified, create a default experiment.
-                2) if id or name is specified, return the specified experiment. If no such exp found,
-                create a new experiment with given id or name, and the experiment is set to be running.
-        Else If `create` is False:
-            If R's running:
-                1) no id or name specified, return the active experiment.
-                2) if id or name is specified, return the specified experiment. If no such exp found,
-                raise Error.
-            If R's not running:
-                1) no id or name specified. If the default experiment exists, return it, otherwise, raise Error.
-                2) if id or name is specified, return the specified experiment. If no such exp found,
-                raise Error.
+        * If `create` is True:
+
+            * If R's running:
+
+                * no id or name specified, return the active experiment.
+                * if id or name is specified, return the specified experiment. If no such exp found, create a new experiment with given id or name, and the experiment is set to be running.
+
+            * If R's not running:
+
+                * no id or name specified, create a default experiment.
+                * if id or name is specified, return the specified experiment. If no such exp found, create a new experiment with given id or name, and the experiment is set to be running.
+
+        * Else If `create` is False:
+
+            * If R's running:
+
+                * no id or name specified, return the active experiment.
+                * if id or name is specified, return the specified experiment. If no such exp found, raise Error.
+
+            * If R's not running:
+
+                *  no id or name specified. If the default experiment exists, return it, otherwise, raise Error.
+                * if id or name is specified, return the specified experiment. If no such exp found, raise Error.
 
         Parameters
         ----------
@@ -225,7 +230,13 @@ class MLflowExpManager(ExpManager):
 
     def __init__(self, uri, default_exp_name):
         super(MLflowExpManager, self).__init__(uri, default_exp_name)
-        self.client = mlflow.tracking.MlflowClient(tracking_uri=self.uri)
+
+    @property
+    def client(self):
+        # Delay the creation of mlflow client in case of creating `mlruns` folder when importing qlib
+        if not hasattr(self, "_client"):
+            self._client = mlflow.tracking.MlflowClient(tracking_uri=self.uri)
+        return self._client
 
     def start_exp(self, experiment_name=None, recorder_name=None, uri=None):
         # create experiment

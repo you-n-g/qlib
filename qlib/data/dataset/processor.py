@@ -74,16 +74,16 @@ class Processor(Serializable):
 
 
 class DropnaProcessor(Processor):
-    def __init__(self, group=None):
-        self.group = group
+    def __init__(self, fields_group=None):
+        self.fields_group = fields_group
 
     def __call__(self, df):
-        return df.dropna(subset=get_group_columns(df, self.group))
+        return df.dropna(subset=get_group_columns(df, self.fields_group))
 
 
 class DropnaLabel(DropnaProcessor):
-    def __init__(self, group="label"):
-        super().__init__(group=group)
+    def __init__(self, fields_group="label"):
+        super().__init__(fields_group=fields_group)
 
     def is_for_infer(self) -> bool:
         """The samples are dropped according to label. So it is not usable for inference"""
@@ -124,18 +124,19 @@ class ProcessInf(Processor):
 
 
 class Fillna(Processor):
-    """Process infinity  """
+    """Process NaN"""
+
+    def __init__(self, fields_group=None, fill_value=0):
+        self.fields_group = fields_group
+        self.fill_value = fill_value
 
     def __call__(self, df):
-        def fill_na(df, columns=None, fill=0):
-
-            if columns == None:
-                columns = df.columns
-            df[columns] = df[columns].fillna(fill)
-
-            return df
-
-        return fill_na(df)
+        if self.fields_group is None:
+            df.fillna(self.fill_value, inplace=True)
+        else:
+            cols = get_group_columns(df, self.fields_group)
+            df.fillna({col: self.fill_value for col in cols}, inplace=True)
+        return df
 
 
 class MinMaxNorm(Processor):
@@ -202,4 +203,20 @@ class CSZScoreNorm(Processor):
         # try not modify original dataframe
         cols = get_group_columns(df, self.fields_group)
         df[cols] = df[cols].groupby("datetime").apply(lambda df: (df - df.mean()).div(df.std()))
+        return df
+
+
+class CSRankNorm(Processor):
+    """Cross Sectional Rank Normalization"""
+
+    def __init__(self, fields_group=None):
+        self.fields_group = fields_group
+
+    def __call__(self, df):
+        # try not modify original dataframe
+        cols = get_group_columns(df, self.fields_group)
+        t = df[cols].groupby("datetime").rank(pct=True)
+        t -= 0.5
+        t *= 3.46  # NOTE: towards unit std
+        df[cols] = t
         return df
