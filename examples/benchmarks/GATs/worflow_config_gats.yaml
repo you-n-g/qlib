@@ -40,6 +40,7 @@ task:
             metric: IC
             loss: mse
             base_model: GRU
+            with_pretrain: False
             seed: 0
             GPU: 0
     dataset:
@@ -58,11 +59,6 @@ task:
         - class: SignalRecord
           module_path: qlib.workflow.record_temp
           kwargs: {}
-        - class: SigAnaRecord
-          module_path: qlib.workflow.record_temp
-          kwargs: 
-            ana_long_short: False
-            ann_scaler: 252
         - class: PortAnaRecord
           module_path: qlib.workflow.record_temp
           kwargs: 
