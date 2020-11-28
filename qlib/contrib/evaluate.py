@@ -47,13 +47,7 @@ def risk_analysis(r, N=252):
 
 
 def get_strategy(
-    strategy=None,
-    topk=50,
-    margin=0.5,
-    n_drop=5,
-    risk_degree=0.95,
-    str_type="amount",
-    adjust_dates=None,
+    strategy=None, topk=50, margin=0.5, n_drop=5, risk_degree=0.95, str_type="amount", adjust_dates=None,
 ):
     """get_strategy
 
@@ -96,11 +90,7 @@ def get_strategy(
         logger.info("Create new streategy ")
         str_cls = getattr(strategy_pool, str_cls_dict.get(str_type))
         strategy = str_cls(
-            topk=topk,
-            buffer_margin=margin,
-            n_drop=n_drop,
-            risk_degree=risk_degree,
-            adjust_dates=adjust_dates,
+            topk=topk, buffer_margin=margin, n_drop=n_drop, risk_degree=risk_degree, adjust_dates=adjust_dates,
         )
     if not isinstance(strategy, BaseStrategy):
         raise TypeError("Strategy not supported")
@@ -391,12 +381,7 @@ def long_short_backtest(
         short_returns[date] = np.mean(short_profit) + np.mean(all_profit)
         ls_returns[date] = np.mean(short_profit) + np.mean(long_profit)
 
-    return dict(
-        zip(
-            ["long", "short", "long_short"],
-            map(pd.Series, [long_returns, short_returns, ls_returns]),
-        )
-    )
+    return dict(zip(["long", "short", "long_short"], map(pd.Series, [long_returns, short_returns, ls_returns]),))
 
 
 def t_run():
