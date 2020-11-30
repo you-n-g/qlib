@@ -40,40 +40,32 @@ port_analysis_config: &port_analysis_config
         min_cost: 5
 task:
     model:
-        class: GATs
-        module_path: qlib.contrib.model.pytorch_gats
+        class: LinearModel
+        module_path: qlib.contrib.model.linear
         kwargs:
-            d_feat: 6
-            hidden_size: 64
-            num_layers: 2
-            dropout: 0.7
-            n_epochs: 200
-            lr: 1e-4
-            early_stop: 20
-            metric: loss
-            loss: mse
-            base_model: LSTM
-            with_pretrain: True
-            model_path: "benchmarks/LSTM/model_lstm_csi300.pkl"
-            seed: 0
-            GPU: 0
+            estimator: ols
     dataset:
         class: DatasetH
         module_path: qlib.data.dataset
         kwargs:
             handler:
-                class: ALPHA360
+                class: Alpha158
                 module_path: qlib.contrib.data.handler
                 kwargs: *data_handler_config
             segments:
                 train: [2008-01-01, 2014-12-31]
                 valid: [2015-01-01, 2016-12-31]
                 test: [2017-01-01, 2020-08-01]
-    record: 
+    record:
         - class: SignalRecord
           module_path: qlib.workflow.record_temp
           kwargs: {}
+        - class: SigAnaRecord
+          module_path: qlib.workflow.record_temp
+          kwargs:
+            ana_long_short: True
+            ann_scaler: 252
         - class: PortAnaRecord
           module_path: qlib.workflow.record_temp
-          kwargs: 
+          kwargs:
             config: *port_analysis_config
