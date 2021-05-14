@@ -8,9 +8,10 @@ from typing import Text, Union
 from ...model.base import ModelFT
 from ...data.dataset import DatasetH
 from ...data.dataset.handler import DataHandlerLP
+from qlib.model.interpret.base import FeatureInt
 
 
-class LGBModel(ModelFT):
+class LGBModel(ModelFT, FeatureInt):
     """LightGBM Model"""
 
     def __init__(self, loss="mse", **kwargs):
@@ -91,3 +92,6 @@ class LGBModel(ModelFT):
             valid_names=["train"],
             verbose_eval=verbose_eval,
         )
+
+    def get_feature_importance(self) -> pd.Series:
+        pass
