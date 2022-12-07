@@ -78,11 +78,11 @@ class LinearModel(Model):
             if w is None:
                 X_w, y_w = X, y
             else:
-                X_w = X * w[:, np.newaxis]
-                y_w = y * w
+                X_w = X * w[:, np.newaxis] ** 0.5
+                y_w = y * w**0.5
             if self.fit_intercept:
                 X = np.concatenate([X, np.ones(X.shape[0])[:, np.newaxis]], axis=1)
-            gamma = 1e-6
+            gamma = 1e-6  # In case of singular X.T @ X, we add a regular term here
             pseudo_inv = np.linalg.inv(X_w.T @ X_w + gamma * np.eye(X_w.shape[1]))
             theta = (pseudo_inv @ X_w.T) @ y_w
             if self.fit_intercept:

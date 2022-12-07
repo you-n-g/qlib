@@ -59,7 +59,9 @@ class PredNet(nn.Module):
         """Please refer to the docs of MetaTaskDS for the description of the variables"""
         weights = self.get_sample_weights(X, time_perf, time_belong, ignore_weight=ignore_weight)
         X_w = X.T * weights.view(1, -1)
-        theta = torch.inverse(X_w @ X) @ X_w @ y
+        # NOTE: the gamma is from qlib/contrib/model/linear.py: LinearModel
+        gamma = 1e-6
+        theta = torch.inverse(X_w @ X + gamma * torch.eye(X_w.shape[0])) @ X_w @ y
         return X_test @ theta, weights
 
     def init_paramters(self, hist_step_n):
