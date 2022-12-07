@@ -6,7 +6,7 @@ import pandas as pd
 from typing import Text, Union
 from qlib.data.dataset.weight import Reweighter
 from scipy.optimize import nnls
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import Ridge, Lasso
 
 from ...model.base import Model
 from ...data.dataset import DatasetH
@@ -72,14 +72,32 @@ class LinearModel(Model):
 
     def _fit(self, X, y, w):
         if self.estimator == self.OLS:
-            model = LinearRegression(fit_intercept=self.fit_intercept, copy_X=False)
+            # FIXME: this will get stuck in some environment.
+            # model = LinearRegression(fit_intercept=self.fit_intercept, copy_X=False)
+            # So we decide to use the analytical solution directly
+            if w is None:
+                X_w, y_w = X, y
+            else:
+                X_w = X * w[:, np.newaxis]
+                y_w = y * w
+            if self.fit_intercept:
+                X = np.concatenate([X, np.ones(X.shape[0])[:, np.newaxis]], axis=1)
+            gamma = 1e-6
+            pseudo_inv = np.linalg.inv(X_w.T @ X_w + gamma * np.eye(X_w.shape[1]))
+            theta = (pseudo_inv @ X_w.T) @ y_w
+            if self.fit_intercept:
+                self.coef_ = theta[:-1]
+                self.intercept_ = theta[-1]
+            else:
+                self.coef_ = theta
+                self.intercept_ = 0.0
         else:
             model = {self.RIDGE: Ridge, self.LASSO: Lasso}[self.estimator](
                 alpha=self.alpha, fit_intercept=self.fit_intercept, copy_X=False
             )
-        model.fit(X, y, sample_weight=w)
-        self.coef_ = model.coef_
-        self.intercept_ = model.intercept_
+            model.fit(X, y, sample_weight=w)
+            self.coef_ = model.coef_
+            self.intercept_ = model.intercept_
 
     def _fit_nnls(self, X, y, w=None):
         if w is not None:
