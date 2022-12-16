@@ -1,6 +1,6 @@
 documentation:
-- any['docs/**/*', '**/*.md']
+- any['docs/**/*', '*/**/*.md']
 
 wait for triage:
-- any['**/*']
-  all['!**/*.md']
+- any['*/**/*']
+  all['!*/**/*.md']
