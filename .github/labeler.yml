@@ -1,7 +1,9 @@
 documentation:
 - 'docs/**/*'
 - '*/**/*.md'
+- '*.md'
 
 wait for triage:
-- any[]
-  all['!docs/**/*', '!*/**/*.md']
+- '!docs/**/*'
+- '!*/**/*.md'
+- '!*.md'
