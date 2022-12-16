@@ -1,6 +1,5 @@
 documentation:
-- docs/**/*
-- **/*.md
+- any['docs/**/*', '**/*.md']
 
 wait for triage:
 - any['**/*']
