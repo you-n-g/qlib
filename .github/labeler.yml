@@ -5,5 +5,5 @@ documentation:
 
 wait for triage:
 - '!docs/**/*'
-- '!*/**/*.md'
-- '!*.md'
+  '!*/**/*.md'
+  '!*.md'
