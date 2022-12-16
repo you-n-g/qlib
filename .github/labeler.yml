@@ -3,5 +3,4 @@ documentation:
 - '*/**/*.md'
 
 wait for triage:
-- '!docs/**/*'
-- '!*/**/*.md'
+- all['!docs/**/*', '!*/**/*.md']
