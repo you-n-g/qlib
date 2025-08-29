@@ -139,6 +139,8 @@ class DataScienceScen(Scenario):
         # True or False, whether the competition scenario requires a longer time limit to the code.
 
     def real_debug_timeout(self):
+        if not hasattr(self, "coder_longer_time_limit_required"):
+            self.coder_longer_time_limit_required = getattr(self, "longer_time_limit_required", False)
         return (
             DS_RD_SETTING.debug_timeout
             * min(
@@ -160,6 +162,8 @@ class DataScienceScen(Scenario):
             if remain_percent * 100 < 100 - DS_RD_SETTING.ratio_merge_or_ensemble:
                 return DS_RD_SETTING.full_timeout * DS_RD_SETTING.runner_longer_timeout_multiplier_upper
 
+        if not hasattr(self, "runner_longer_time_limit_required"):
+            self.runner_longer_time_limit_required = getattr(self, "longer_time_limit_required", False)
         return (
             DS_RD_SETTING.full_timeout
             * min(
