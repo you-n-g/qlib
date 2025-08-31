@@ -14,7 +14,9 @@ def load_session(session_path: Path):
 from pathlib import Path
 
 # from_session = "log/backup/cube-2025-08-31-15h-05m"
-from_session = max(Path("log/backup").glob("cube-*")) / "cube"
+from_session = max(Path("log/backup").glob("cube-*"))
+if (from_session / "cube").exists():
+    from_session = from_session / "cube"
 sess = load_session(from_session)
 
 best_item = sorted(sess.trace.hist, key = lambda x: (x[1].decision, x[1].decision and x[0].result.iloc[:, -1]["ensemble"].item()))[-1]
@@ -57,9 +59,6 @@ def backup_session(session_path: Path, log_path: Path):
             shutil.move(str(loop_dir), str(backup_path / loop_dir.name))
 
 
-# %%
-
-sess = load_session(from_session)
 
 # %%
 
