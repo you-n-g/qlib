@@ -1,5 +1,32 @@
-LOOP_IDX = 71
-from_sess_path = "log/backup/cube-2025-08-31-15h-05m"
+
+from pathlib import Path
+import pickle
+
+def load_session(session_path: Path):
+    p_l = sorted((session_path / "__session__/").glob("*/*"), key=lambda p: (int(p.parent.name), p.name))
+    for p in p_l[::-1]:
+        if p.name.startswith("4_"):
+            with open(p, "rb") as f:
+                sess = pickle.load(f)
+            return sess
+
+# %%
+from pathlib import Path
+
+# from_session = "log/backup/cube-2025-08-31-15h-05m"
+from_session = max(Path("log/backup").glob("cube-*")) / "cube"
+sess = load_session(from_session)
+
+best_item = sorted(sess.trace.hist, key = lambda x: (x[1].decision, x[1].decision and x[0].result.iloc[:, -1]["ensemble"].item()))[-1]
+
+best_item[0].result
+
+
+for LOOP_IDX in range(len(sess.trace.hist)):
+    if sess.trace.hist[LOOP_IDX][0] is best_item[0]:
+        break
+
+from_session, LOOP_IDX
 
 # %%
 
@@ -31,18 +58,6 @@ def backup_session(session_path: Path, log_path: Path):
 
 
 # %%
-
-
-from pathlib import Path
-import pickle
-
-from_session = Path(from_sess_path)
-
-def load_session(session_path: Path):
-    p_l = sorted((session_path / "__session__/").glob("*/*"), key=lambda p: (int(p.parent.name), p.name))
-    with open(p_l[-1], "rb") as f:
-        sess = pickle.load(f)
-    return sess
 
 sess = load_session(from_session)
 
