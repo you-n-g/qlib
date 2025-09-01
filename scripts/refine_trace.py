@@ -70,12 +70,7 @@ def mock_session():
         if v == LOOP_IDX:
             enq_idx = k
 
-
     parents = trace.get_parents(enq_idx)
-
-
-
-
     enqidx2new = {}
     dag_parent_new = []
 
@@ -107,8 +102,12 @@ def mock_session():
 
 # %%
 
+# from_session = Path("log/cube/")
 from collections import defaultdict
 sess = load_session(from_session)
+
+if hasattr(sess.exp_gen, "trace_scheduler"):
+    sess.exp_gen.trace_scheduler.uncommited_rec_status = defaultdict(int)
 
 sess_path = Path("log/cube/__session__")
 
@@ -133,6 +132,7 @@ sess.loop_trace = loop_trace
 sess.session_folder = sess_path
 
 sess_loop_path = sess_path / f"0"
+# sess_loop_path = sess_path / f"12"
 sess_loop_path.mkdir(parents=True, exist_ok=True)
 with open(sess_loop_path / f"{len(sess.steps) - 1}_record", "wb") as f:
     pickle.dump(sess, f)
