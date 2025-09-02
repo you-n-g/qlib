@@ -15,7 +15,8 @@ Here is the list of available instruments:
 
 ## Requirements
 - When working with time series data, always split your data based on time. The validation set must only contain data from later dates than the training set, and the test set must come after the validation set. This prevents data leakage and ensures fair model evaluation.
-- Make sure your validation data covers a period of more than **12 months** (the validation evaluation in scores.csv should also cover the same length!). This helps ensure that your evaluation of the prediction is reliable and robust. We only need a very short period of test time, e.g., 3 months. Please leave most of the data for training and validation.
+- Make sure your validation data covers a period of more than **12 months** (the validation evaluation in scores.csv should also cover the same length!). This helps ensure that your evaluation of the prediction is reliable and robust. We only need a very short period of test time, e.g., 6 months. Please leave most of the data for training and validation.
+  - Use data after 2025-01-01 for the test set (last 6 months). Use data from 2024-01-01 to 2024-12-31 for the validation set (from 18 months before the end to 6 months before the end).
 - Always print out key details about your dataset, including:
   - The instruments you used
   - The points in time used to split the data
@@ -55,6 +56,7 @@ data["target"] = (data["future15"] - mean_ret_1d) / std_ret_1d
 ```
 
 - The predictions are intended for trading purposes, so your prediction target should match a tradable action. For example, if you use features at time `T`, and assume it takes `1` minute to enter the position and `1` more minute to close the position after holding it for `h` minutes, the prediction target should reflect the price change from `T + 1` to `T + h + 1`. A typical error is predicting the price change from  `T` to `T + h`,
+- DON'T include transaction fees when creating the prediction target!!!
 - DON'T predict volatility!!!!!!!
 - When working with multiple symbols, make sure you calculate the target separately for each symbol. If your data includes several symbols combined in one table, use  
   `data['target'] = data.groupby("symbol")["log_price"].transform(lambda s: s.shift(-(h + 1)) - s.shift(-1))`
