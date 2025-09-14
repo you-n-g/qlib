@@ -24,11 +24,19 @@ def create_new_session(from_session: Path) -> None:
     # Load session
     sess = load_session(from_session)
 
-    # Select best item (same criteria as refine_trace.py)
-    # use sese.scen's direction to determine the best item. AI!
+    # Select best item (same criteria as refine_trace.py) but respect scenario metric direction
+    direction = getattr(getattr(sess, "scen", None), "metric_direction", True)
     best_item = sorted(
         sess.trace.hist,
-        key=lambda x: (x[1].decision, x[1].decision and x[0].result.iloc[:, -1]["ensemble"].item()),
+        key=lambda x: (
+            x[1].decision,
+            x[1].decision
+            and (
+                -x[0].result.iloc[:, -1]["ensemble"].item()
+                if not direction
+                else x[0].result.iloc[:, -1]["ensemble"].item()
+            ),
+        ),
     )[-1]
 
     # Determine LOOP_IDX where experiment object identity matches
