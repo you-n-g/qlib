@@ -1,6 +1,5 @@
 from rdagent.scenarios.data_science.proposal.exp_gen.base import DSHypothesis, DSTrace
 from rdagent.scenarios.data_science.proposal.exp_gen.proposal import DSProposalV2ExpGen
-from rdagent.app.data_science.conf import DS_RD_SETTING
 from rdagent.utils.agent.tpl import T
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,8 +32,6 @@ class CustomExpGen(DSProposalV2ExpGen):
     def exp_gen(self, trace: DSTrace):
         custom_settings = Settings()
 
-        # Determine whether to operate on the whole pipeline
-        pipeline = DS_RD_SETTING.coder_on_whole_pipeline
 
         # Retrieve SOTA experiment and feedback
         sota_exp_fb = trace.sota_experiment_fb()
@@ -58,20 +55,12 @@ class CustomExpGen(DSProposalV2ExpGen):
         )
 
         # Component description and failed trace description
-        if pipeline:
-            component_desc = T("scenarios.data_science.share:component_description_in_pipeline").r()
-        else:
-            component_desc = "\n".join(
-                [
-                    f"[{key}] {value}"
-                    for key, value in T("scenarios.data_science.share:component_description").template.items()
-                ]
-            )
+        component_desc = T("scenarios.data_science.share:component_description_in_pipeline").r()
 
         failed_exp_feedback_list_desc = T("scenarios.data_science.share:describe.trace").r(
             exp_and_feedback_list=trace.experiment_and_feedback_list_after_init(return_type="failed"),
             type="failed",
-            pipeline=pipeline,
+            pipeline=True,
         )
 
         # Construct hypothesis from custom settings
@@ -99,7 +88,7 @@ class CustomExpGen(DSProposalV2ExpGen):
             sota_exp_desc=sota_exp_desc,
             sota_exp=sota_exp,
             hypotheses=[hypothesis],
-            pipeline=pipeline,
+            pipeline=True,
             failed_exp_feedback_list_desc=failed_exp_feedback_list_desc,
             fb_to_sota_exp=fb_to_sota_exp,
             sibling_exp=sibling_exp,
