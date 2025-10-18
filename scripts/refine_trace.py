@@ -28,8 +28,6 @@ for LOOP_IDX in range(len(sess.trace.hist)):
     if sess.trace.hist[LOOP_IDX][0] is best_item[0]:
         break
 
-from_session, LOOP_IDX
-
 # %%
 
 from pathlib import Path

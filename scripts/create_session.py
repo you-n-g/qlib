@@ -15,6 +15,12 @@ def load_session(session_path: Path):
             return sess
     raise FileNotFoundError(f"No session record starting with '4_' found under {session_path / '__session__'}")
 
+def update_session(sess):
+    from IPython import embed; embed()  # update session before dumping
+    sess.exp_gen
+    from rdagent.app.data_science.conf import DS_RD_SETTING
+
+    from rdagent.core.utils import import_class
 
 def create_new_session(from_session: Path) -> None:
     """
@@ -82,6 +88,8 @@ def create_new_session(from_session: Path) -> None:
     # Dump the new session record
     sess_loop_path = sess_path / "0"
     sess_loop_path.mkdir(parents=True, exist_ok=True)
+
+    # update_session(sess)
     with open(sess_loop_path / f"{len(sess.steps) - 1}_record", "wb") as f:
         pickle.dump(sess, f)
 

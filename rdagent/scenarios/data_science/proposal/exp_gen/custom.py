@@ -12,11 +12,9 @@ class Settings(BaseSettings):
     problem_desc: str | None = None
     hypothesis_desc: str
 
-    model_config = SettingsConfigDict(
-        env_prefix="DS_EXP_GEN_",
-        # extra="allow", # Does it allow extrasettings
-    )
-
+    model_config = SettingsConfigDict(env_prefix="DS_EXP_GEN_",
+                                      # extra="allow", # Does it allow extrasettings
+                                     )
 
 
 class CustomExpGen(DSProposalV2ExpGen):
@@ -29,9 +27,9 @@ class CustomExpGen(DSProposalV2ExpGen):
     - one hypothesis may involves multiple loops to try;
         - We hope learn from previous failures and design better tasks based on the same hypothesis.
     """
-    def exp_gen(self, trace: DSTrace):
-        custom_settings = Settings()
 
+    def gen(self, trace: DSTrace):
+        custom_settings = Settings()
 
         # Retrieve SOTA experiment and feedback
         sota_exp_fb = trace.sota_experiment_fb()
@@ -43,16 +41,12 @@ class CustomExpGen(DSProposalV2ExpGen):
         # Build scenario description (attach EDA info if available)
         eda_output = None
         if sota_exp is not None:
-            try:
-                eda_output = getattr(getattr(sota_exp, "experiment_workspace", None), "file_dict", {}).get("EDA.md", None)
-            except Exception:
-                eda_output = None
+            eda_output = sota_exp.experiment_workspace.file_dict.get("EDA.md", None)
         scenario_desc = self.scen.get_scenario_all_desc(eda_output=eda_output)
 
         # Describe the current best solution
         sota_exp_desc = T("scenarios.data_science.share:describe.exp").r(
-            exp=sota_exp, heading="Best of previous exploration of the scenario"
-        )
+            exp=sota_exp, heading="Best of previous exploration of the scenario")
 
         # Component description and failed trace description
         component_desc = T("scenarios.data_science.share:component_description_in_pipeline").r()
@@ -63,24 +57,13 @@ class CustomExpGen(DSProposalV2ExpGen):
             pipeline=True,
         )
 
-        # Construct hypothesis from custom settings
-        reason_parts: list[str] = []
-        if custom_settings.problem_name:
-            reason_parts.append(f"Problem: {custom_settings.problem_name}")
-        if custom_settings.problem_desc:
-            reason_parts.append(f"Details: {custom_settings.problem_desc}")
-        reason = "\n".join(reason_parts) if reason_parts else "User-specified custom hypothesis."
-
         hypothesis = DSHypothesis(
-            component="Model",
+            component="Pipeline",
             hypothesis=custom_settings.hypothesis_desc,
-            reason=reason,
             problem_name=custom_settings.problem_name,
             problem_desc=custom_settings.problem_desc,
             problem_label="FEEDBACK_PROBLEM",
         )
-
-        sibling_exp = trace.get_sibling_exps() if trace.should_inject_diversity() else None
 
         return self.task_gen(
             component_desc=component_desc,
@@ -91,6 +74,4 @@ class CustomExpGen(DSProposalV2ExpGen):
             pipeline=True,
             failed_exp_feedback_list_desc=failed_exp_feedback_list_desc,
             fb_to_sota_exp=fb_to_sota_exp,
-            sibling_exp=sibling_exp,
         )
-
