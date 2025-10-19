@@ -22,7 +22,7 @@ def update_session(sess):
 
     from rdagent.core.utils import import_class
 
-def create_new_session(from_session: Path) -> None:
+def create_new_session(from_session: Path, end_idx: None | int = None):
     """
     from_session is a path including dataset name like "cube"
     """
@@ -33,7 +33,7 @@ def create_new_session(from_session: Path) -> None:
     # Select best item (same criteria as refine_trace.py) but respect scenario metric direction
     direction = getattr(getattr(sess, "scen", None), "metric_direction", True)
     best_item = sorted(
-        sess.trace.hist,
+        sess.trace.hist[:end_idx],
         key=lambda x: (
             x[1].decision,
             x[1].decision
@@ -44,6 +44,7 @@ def create_new_session(from_session: Path) -> None:
             ),
         ),
     )[-1]
+    print(f"{sess.trace.hist.index(best_item)=}")
 
     # Determine LOOP_IDX where experiment object identity matches
     for LOOP_IDX in range(len(sess.trace.hist)):
@@ -95,13 +96,13 @@ def create_new_session(from_session: Path) -> None:
 
 
 @app.command("create")
-def cli_create(session_path: str):
+def cli_create(session_path: str, end_idx: None | int = None):
     """
     Load session from a specific path and create a new session (same logic as scripts/refine_trace.py).
 
     session_path: Path to the base folder of a session (e.g., log/cube or log/backup/cube-...[/cube])
     """
-    create_new_session(Path(session_path))
+    create_new_session(Path(session_path), end_idx=end_idx)
 
 
 if __name__ == "__main__":

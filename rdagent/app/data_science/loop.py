@@ -22,6 +22,7 @@ def main(
     competition="bms-molecular-translation",
     replace_timer=True,
     exp_gen_cls: Optional[str] = None,
+    interactor_cls: Optional[str] = None,
 ):
     """
 
@@ -72,6 +73,9 @@ def main(
     # replace exp_gen if we have new class
     if exp_gen_cls is not None:
         kaggle_loop.exp_gen = import_class(exp_gen_cls)(kaggle_loop.exp_gen.scen)
+    # replace interactor if we have new class
+    if interactor_cls is not None:
+        kaggle_loop.interactor = import_class(interactor_cls)(kaggle_loop.exp_gen.scen)
 
     asyncio.run(kaggle_loop.run(step_n=step_n, loop_n=loop_n, all_duration=timeout))
 
