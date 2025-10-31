@@ -73,6 +73,13 @@ class Task(AbsTask):
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__} {self.name}>"
 
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """when loading from pickle, if user_instructions is None, we should set it properly"""
+        self.__dict__.update(state)
+        # Ensure user_instructions is either a UserInstructions instance or None
+        if not hasattr(self, "user_instructions") or self.user_instructions is None:
+            self.user_instructions = None
+
 
 ASpecificTask = TypeVar("ASpecificTask", bound=Task)
 ASpecificFeedback = TypeVar("ASpecificFeedback", bound=Feedback)
@@ -467,6 +474,13 @@ class Experiment(
                     # the FBWorkspace is shared between experiment_workspace and sub_workspace_list,
                     # so recover_ws_ckp will raise RuntimeError if a workspace is recovered twice.
                     print("recover_ws_ckp failed due to one workspace is recovered twice.")
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """when loading from pickle, if user_instructions is None, we should set it properly"""
+        self.__dict__.update(state)
+        # Ensure user_instructions is either a UserInstructions instance or None
+        if not hasattr(self, "user_instructions") or self.user_instructions is None:
+            self.user_instructions = None
 
 
 ASpecificExp = TypeVar("ASpecificExp", bound=Experiment)
