@@ -27,7 +27,7 @@ def deploy_data():
     data_dir.mkdir(parents=True, exist_ok=True)
 
     task(cache_policy=TASK_SOURCE + INPUTS)(subprocess.run)(
-        f'sudo mount --bind  ~/data/high-freq/bar/klinescoin.parquet "{data_dir}"', shell=True)
+        f'sudo mount --bind  ~/data/high-freq/bar/klines-1T-symbol.parquet "{data_dir}"', shell=True)
 
     with data_dir.parent.joinpath("description.md").open("w") as f:
         f.write(
