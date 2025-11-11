@@ -27,6 +27,14 @@ Here is the list of available instruments:
   - Do not add any option to turn caching on or off; simply avoid saving the data or model to disk altogether.
 - Aim to maximize the cross-sectional correlation between your predictions and the target. The target is defined as the return over the next 30 minutes. So you must select at least 2 symbols (more is better).
 
+Always write your evaluation code in an individual function named `eval_pred` similar to the following:
+```Python
+def eval_pred(pred, ground_truth):
+  # ...<print some description about your pred and ground_truth>...
+  # ...<your evaluation code here>...
+```
+
+
 ### Tips for feature engineering
 - When building features, DO NOT introduce any future information. Data leakage will make the solution invalid and is not allowed. Following are some typical errors that leakeage future information:
 - `data[f'{col_mean}_norm'] = data[col_mean] / data.groupby(['symbol', 'date'])[col_mean].transform('mean')` uses information from the end of the day to normalize data, but that information is not available at that time point. Instead, you can use rolling statistics for normalization.
