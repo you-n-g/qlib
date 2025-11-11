@@ -25,6 +25,7 @@ Here is the list of available instruments:
 - If you face resource limits, it is better to use fewer instruments but keep a longer time period, rather than just reducing the number of samples. A bad example is limiting the data to only 1 million samples, as this will usually keep only a short time range since the data is typically sorted by time.
 - DO NOT CACHE THE DATASET OR THE MODEL! Always create new features and train models from the raw data each time you run the code.
   - Do not add any option to turn caching on or off; simply avoid saving the data or model to disk altogether.
+- Aim to maximize the cross-sectional correlation between your predictions and the target. The target is defined as the return over the next 30 minutes. So you must select at least 2 symbols (more is better).
 
 ### Tips for feature engineering
 - When building features, DO NOT introduce any future information. Data leakage will make the solution invalid and is not allowed. Following are some typical errors that leakeage future information:
@@ -45,6 +46,7 @@ data[f'{col_mean}_norm'] = data[col_mean] / rolling_mean_1d
     - `df['close'].shift(1).rolling(window=10, min_periods=10).mean() / df['close_day_mean']` is better than just using the mean, since normalizing by the daily mean removes the effect of absolute price units.
 
 ### Tips for Creating the Prediction Target
+- Aim to maximize the cross-sectional correlation between your predictions and the target. The target is defined as the return over the next 30 minutes. So you must select at least 2 symbols (more is better).
 - DO NOT use the absolute price as the target. Instead, choose a target that captures future price changes, such as the price movement over a short period.
   - If you mix absolute price with price changes, the absolute price will dominate, leading to an easy but useless prediction target.
   - Here is an example of a useless prediction target, which is a bad case!!
