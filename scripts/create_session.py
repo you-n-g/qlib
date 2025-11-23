@@ -28,7 +28,8 @@ def update_session(sess, from_workspace: Path):
         with open(from_workspace / file, "r") as f:
             ws.file_dict[file] = f.read()
 
-def create_new_session(from_session: Path, end_idx: None | int = None, from_workspace: Path | None = None):
+def create_new_session(from_session: Path, end_idx: None | int = None, from_workspace: Path | None = None,
+                       out_path: Path = "log/cube/"):
     """
     from_session is a path with dataset name like "cube"
     """
@@ -64,7 +65,8 @@ def create_new_session(from_session: Path, end_idx: None | int = None, from_work
         sess.exp_gen.trace_scheduler.uncommited_rec_status = defaultdict(int)
 
     # Prepare the new session path (fixed path as in refine_trace.py)
-    sess_path = Path("log/cube/__session__")
+    out_path = Path(out_path)
+    sess_path = out_path / "__session__"
     if sess_path.exists():
         raise RuntimeError(f"Session path {sess_path} already exists.")
 
@@ -111,6 +113,7 @@ def cli_create(
     session_path: str,
     end_idx: None | int = typer.Option(None, "-e", help="Optional end index to consider in the session trace"),
     from_workspace: Path | None = typer.Option(None, "-w", help="Optional workspace path to update session from"),
+    out_path: Path | None = typer.Option("log/cube/", "-o", help="Optional output path"),
 ):
     """
     Load session from a specific path and create a new session (same logic as scripts/refine_trace.py).
@@ -118,8 +121,12 @@ def cli_create(
     -p, --session-path: Path to the base folder of a session (e.g., log/cube or log/backup/cube-...[/cube])
     -e, --end-idx: Optional end index to consider in the session trace
     -w, --from-workspace: Optional workspace path to update session from
+
+    Example:
+
+        python scripts/create_session.py ./log/cube/ -e  1 -w ./git_ignore_folder/RD-Agent_workspace/badae57f66fe454f90513e0cff1717d2/
     """
-    create_new_session(Path(session_path), end_idx=end_idx, from_workspace=from_workspace)
+    create_new_session(Path(session_path), end_idx=end_idx, from_workspace=from_workspace, out_path=out_path)
 
 
 if __name__ == "__main__":
