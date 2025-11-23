@@ -71,6 +71,7 @@ class CustomExpGen(DSProposalV2ExpGen):
             sota_exp_desc=sota_exp_desc,
             sota_exp=sota_exp,
             hypotheses=[hypothesis],
+            hypotheses_candidates=[hypothesis],
             pipeline=True,
             failed_exp_feedback_list_desc=failed_exp_feedback_list_desc,
             fb_to_sota_exp=fb_to_sota_exp,

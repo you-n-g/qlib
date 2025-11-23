@@ -2,6 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 import pickle
 import typer
+import pandas as pd
 
 app = typer.Typer(help="Load a session from a specific path and create a new session as in refine_trace.py.")
 
@@ -15,16 +16,21 @@ def load_session(session_path: Path):
             return sess
     raise FileNotFoundError(f"No session record starting with '4_' found under {session_path / '__session__'}")
 
-def update_session(sess):
-    from IPython import embed; embed()  # update session before dumping
-    sess.exp_gen
-    from rdagent.app.data_science.conf import DS_RD_SETTING
+def update_session(sess, from_workspace: Path):
 
-    from rdagent.core.utils import import_class
+    exp = sess.trace.hist[0][0]
+    assert exp.sub_workspace_list[0] is exp.experiment_workspace
+    ws = exp.experiment_workspace
 
-def create_new_session(from_session: Path, end_idx: None | int = None):
+    exp.result = pd.read_csv(from_workspace / "scores.csv", index_col=0)
+    ws.workspace_path = from_workspace
+    for file in ["main.py", "EDA.md", "stdout.txt"]:
+        with open(from_workspace / file, "r") as f:
+            ws.file_dict[file] = f.read()
+
+def create_new_session(from_session: Path, end_idx: None | int = None, from_workspace: Path | None = None):
     """
-    from_session is a path including dataset name like "cube"
+    from_session is a path with dataset name like "cube"
     """
 
     # Load session
@@ -59,6 +65,8 @@ def create_new_session(from_session: Path, end_idx: None | int = None):
 
     # Prepare the new session path (fixed path as in refine_trace.py)
     sess_path = Path("log/cube/__session__")
+    if sess_path.exists():
+        raise RuntimeError(f"Session path {sess_path} already exists.")
 
     # Rebuild trace focusing on the selected loop
     trace = sess.trace
@@ -86,6 +94,9 @@ def create_new_session(from_session: Path, end_idx: None | int = None):
     # Point session to the new session folder
     sess.session_folder = sess_path
 
+    if from_workspace is not None:
+        update_session(sess, from_workspace)
+
     # Dump the new session record
     sess_loop_path = sess_path / "0"
     sess_loop_path.mkdir(parents=True, exist_ok=True)
@@ -96,13 +107,19 @@ def create_new_session(from_session: Path, end_idx: None | int = None):
 
 
 @app.command("create")
-def cli_create(session_path: str, end_idx: None | int = None):
+def cli_create(
+    session_path: str,
+    end_idx: None | int = typer.Option(None, "-e", help="Optional end index to consider in the session trace"),
+    from_workspace: Path | None = typer.Option(None, "-w", help="Optional workspace path to update session from"),
+):
     """
     Load session from a specific path and create a new session (same logic as scripts/refine_trace.py).
 
-    session_path: Path to the base folder of a session (e.g., log/cube or log/backup/cube-...[/cube])
+    -p, --session-path: Path to the base folder of a session (e.g., log/cube or log/backup/cube-...[/cube])
+    -e, --end-idx: Optional end index to consider in the session trace
+    -w, --from-workspace: Optional workspace path to update session from
     """
-    create_new_session(Path(session_path), end_idx=end_idx)
+    create_new_session(Path(session_path), end_idx=end_idx, from_workspace=from_workspace)
 
 
 if __name__ == "__main__":
