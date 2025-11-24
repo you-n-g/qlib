@@ -29,7 +29,7 @@ def update_session(sess, from_workspace: Path):
             ws.file_dict[file] = f.read()
 
 def create_new_session(from_session: Path, end_idx: None | int = None, from_workspace: Path | None = None,
-                       out_path: Path = "log/cube/"):
+                       out_path: Path = "log/cube/", force: bool = False):
     """
     from_session is a path with dataset name like "cube"
     """
@@ -68,7 +68,11 @@ def create_new_session(from_session: Path, end_idx: None | int = None, from_work
     out_path = Path(out_path)
     sess_path = out_path / "__session__"
     if sess_path.exists():
-        raise RuntimeError(f"Session path {sess_path} already exists.")
+        if force:
+            import shutil
+            shutil.rmtree(sess_path)
+        else:
+            raise RuntimeError(f"Session path {sess_path} already exists.")
 
     # Rebuild trace focusing on the selected loop
     trace = sess.trace
@@ -114,6 +118,7 @@ def cli_create(
     end_idx: None | int = typer.Option(None, "-e", help="Optional end index to consider in the session trace"),
     from_workspace: Path | None = typer.Option(None, "-w", help="Optional workspace path to update session from"),
     out_path: Path | None = typer.Option("log/cube/", "-o", help="Optional output path"),
+    force: bool = typer.Option(False, "-f", help="Force remove existing session path if it exists"),
 ):
     """
     Load session from a specific path and create a new session (same logic as scripts/refine_trace.py).
@@ -126,7 +131,7 @@ def cli_create(
 
         python scripts/create_session.py ./log/cube/ -e  1 -w ./git_ignore_folder/RD-Agent_workspace/badae57f66fe454f90513e0cff1717d2/
     """
-    create_new_session(Path(session_path), end_idx=end_idx, from_workspace=from_workspace, out_path=out_path)
+    create_new_session(Path(session_path), end_idx=end_idx, from_workspace=from_workspace, out_path=out_path, force=force)
 
 
 if __name__ == "__main__":

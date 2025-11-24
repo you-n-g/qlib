@@ -4,7 +4,7 @@ from pathlib import Path
 
 app = typer.Typer()
 
-env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+env_path = Path(__file__).resolve().parent.parent.parent.parent / '.env'
 print(env_path)
 
 @app.command()

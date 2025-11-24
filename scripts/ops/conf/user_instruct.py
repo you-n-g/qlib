@@ -11,7 +11,7 @@ and then start the frontend server with the following command:
 from dotenv import set_key
 from pathlib import Path
 
-env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+env_path = Path(__file__).resolve().parent.parent.parent.parent / '.env'
 
 
 set_key(str(env_path), 'DS_USER_INTERACTION_WAIT_SECONDS', "60")
