@@ -218,7 +218,6 @@ class LoopBase:
                 func: Callable[..., Any] = cast(Callable[..., Any], getattr(self, name))
 
                 next_step_idx = si + 1
-                step_forward = True
                 # NOTE: each step are aware are of current loop index
                 # It is very important to set it before calling the step function!
                 self.loop_prev_out[li][self.LOOP_IDX_KEY] = li
@@ -253,13 +252,15 @@ class LoopBase:
                         logger.warning(f"Withdraw loop {li} due to {e}")
                         # Back to previous loop
                         self.withdraw_loop(li)
-                        step_forward = False
 
                         msg = "We have reset the loop instance, stop all the routines and resume."
                         raise self.LoopResumeError(msg) from e
                     else:
                         raise  # re-raise unhandled exceptions
                 finally:
+                    # NOTE: very corner case:
+                    # when the execute_loop() raises an exception, the kick-off loop will not raise an exception but the final code will be executed.
+
                     # No matter the execution succeed or not, we have to finish the following steps
 
                     # Record the trace
@@ -272,7 +273,7 @@ class LoopBase:
                         },
                         tag="time_info",
                     )
-                    if step_forward:
+                    if name in self.loop_prev_out[li]: # if we really did some thing (no matter success or exception), go forward
                         # Increment step index
                         self.step_idx[li] = next_step_idx
 
