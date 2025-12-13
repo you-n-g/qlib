@@ -10,9 +10,9 @@ app = typer.Typer()
 
 
 @app.command()
-def set_timeout_expanding():
-    set_key(str(env_path), "DS_DEBUG_TIMEOUT", "3600")
-    set_key(str(env_path), "DS_FULL_TIMEOUT", "10800")
+def set_timeout_expanding(debug_hours: float =1.0, full_hours: float = 3.0):
+    set_key(str(env_path), "DS_DEBUG_TIMEOUT", f"{int(3600 * debug_hours)}")
+    set_key(str(env_path), "DS_FULL_TIMEOUT", f"{int(3600 * full_hours)}")
 
 if __name__ == "__main__":
     app()

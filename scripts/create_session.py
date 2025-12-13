@@ -84,6 +84,8 @@ def create_new_session(from_session: Path, end_idx: None | int = None, from_work
         raise RuntimeError(f"Failed to find enqueue index for LOOP_IDX={LOOP_IDX}.")
 
     trace.hist = [trace.hist[enq_idx]]
+    trace.hist[0][1].eda_improvement = None
+
     trace.idx2loop_id = {0: 0}
     trace.dag_parent = [()]
 

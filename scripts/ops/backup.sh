@@ -1,5 +1,10 @@
 #!/bin/sh
 
+false << "EOF" > /dev/null
+
+bash scripts/ops/backup.sh -m cube-spot
+EOF
+
 # https://stackoverflow.com/a/34531699
 m=cube
 while getopts ":m:" opt; do
